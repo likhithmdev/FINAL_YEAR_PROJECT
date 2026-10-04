@@ -3,8 +3,8 @@
 # they are separate jobs and a failure in one does not hide the other.
 #
 # No `paths:` filters on purpose — every push verifies both surfaces. The
-# Android job is the expensive one; see the README note on skipping it for
-# dashboard-only changes if CI minutes become a concern.
+# Android job is the expensive one; add change detection if CI minutes become
+# a concern.
 
 name: CI
 
@@ -30,11 +30,11 @@ jobs:
         working-directory: dashboard
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Node 22 is what the dashboard is developed against locally.
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -52,7 +52,7 @@ jobs:
         run: npm run build
 
       - name: Upload the built console
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dashboard-dist
           path: dashboard/dist
@@ -67,22 +67,37 @@ jobs:
         working-directory: mobile_app
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # AGP 8.5.2 and Kotlin 2.0.21 both require a JDK 17 toolchain.
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: mobile_app
-
+      # `compileSdk = 35` needs platforms;android-35, and AGP 8.5.2 resolves
+      # build-tools 34.0.0 by default, so install exactly those rather than
+      # relying on whatever the runner image happens to ship.
       - name: Set up the Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-35
+            build-tools;34.0.0
+
+      # Gradle caching for the wrapper under mobile_app/.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # Prints the resolved SDK location so a future setup failure is
+      # diagnosable from the log instead of guessing.
+      - name: Report the Android SDK location
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          ls "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/platforms" || true
 
       # `mobile_app/app/google-services.json` is gitignored, but the
       # `com.google.gms.google-services` plugin refuses to build without it.
@@ -109,7 +124,7 @@ jobs:
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest assembleDebug
 
       - name: Upload the debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smart-ambulance-driver-debug
           path: mobile_app/app/build/outputs/apk/debug/*.apk
