@@ -1,10 +1,23 @@
+// MQTT topic catalogue. Kept in sync with `MqttTopics.kt` (Android) and the
+// firmware publishing code. Wildcard variants are used for subscriptions.
+
+const PREFIX = "smart-ambulance";
+
 export const mqttTopics = {
-  ambulanceLoRaGps: (ambulanceId) => `smart-ambulance/ambulances/${ambulanceId}/lora-gps`,
-  junctionApproach: (junctionId) => `smart-ambulance/junctions/${junctionId}/approach`,
-  junctionEvents: (junctionId) => `smart-ambulance/junctions/${junctionId}/events`,
-  junctionSignal: (junctionId) => `smart-ambulance/junctions/${junctionId}/signal`,
-  ambulanceStatus: (ambulanceId) => `smart-ambulance/ambulances/${ambulanceId}/status`,
-  tripEvents: (tripId) => `smart-ambulance/trips/${tripId}/events`,
+  prefix: PREFIX,
+  ambulanceLoRaGps: (ambulanceId) => `${PREFIX}/ambulances/${ambulanceId}/lora-gps`,
+  ambulanceStatus: (ambulanceId) => `${PREFIX}/ambulances/${ambulanceId}/status`,
+  junctionApproach: (junctionId) => `${PREFIX}/junctions/${junctionId}/approach`,
+  junctionEvents: (junctionId) => `${PREFIX}/junctions/${junctionId}/events`,
+  junctionSignal: (junctionId) => `${PREFIX}/junctions/${junctionId}/signal`,
+  tripEvents: (tripId) => `${PREFIX}/trips/${tripId}/events`,
+
+  junctionEventsWildcard: `${PREFIX}/junctions/+/events`,
+  junctionSignalWildcard: `${PREFIX}/junctions/+/signal`,
+  junctionApproachWildcard: `${PREFIX}/junctions/+/approach`,
+  ambulanceLoRaGpsWildcard: `${PREFIX}/ambulances/+/lora-gps`,
+  ambulanceStatusWildcard: `${PREFIX}/ambulances/+/status`,
+  tripEventsWildcard: `${PREFIX}/trips/+/events`,
 };
 
 export const mqttBrokerDefaults = {
