@@ -48,4 +48,8 @@ dependencies {
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+
+    // JVM unit tests (app/src/test). These cover the Firebase/MQTT contract
+    // objects and the pure data models, which need no Android runtime.
+    testImplementation("junit:junit:4.13.2")
 }
