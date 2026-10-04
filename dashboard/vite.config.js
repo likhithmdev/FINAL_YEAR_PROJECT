@@ -9,6 +9,12 @@ export default defineConfig({
   optimizeDeps: {
     include: ["mqtt"],
   },
+  test: {
+    // The console's logic lives in plain js modules under src/lib, so the node
+    // environment is enough and keeps the suite fast.
+    environment: "node",
+    include: ["src/**/*.test.{js,jsx}"],
+  },
   build: {
     rollupOptions: {
       output: {
