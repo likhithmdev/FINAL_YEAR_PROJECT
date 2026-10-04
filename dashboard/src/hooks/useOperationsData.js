@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { subscribeToDashboardData } from "../integrations/firebaseClient";
-import { subscribeToMqtt } from "../integrations/mqttClient";
 import {
   deriveCorridor,
   hospitalAlertMeta,
@@ -111,8 +110,13 @@ export function useOperationsData() {
     return unsubscribe;
   }, []);
 
-  // MQTT — low-latency device telemetry and events.
+  // MQTT — low-latency device telemetry and events. The client is the single
+  // heaviest dependency in the console, so it is imported dynamically and
+  // arrives after the operator has already seen the first paint.
   useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => {};
+
     const pushEvent = (payload) => {
       const event = normalizeMqttEvent(payload);
       if (!event) return;
@@ -123,7 +127,7 @@ export function useOperationsData() {
       setLastMessageAt(Date.now());
     };
 
-    const unsubscribe = subscribeToMqtt({
+    const handlers = {
       onStatus: (status, message) => {
         setMqttStatus(status);
         if (status === "error") setMqttError(message || "MQTT error");
@@ -158,8 +162,23 @@ export function useOperationsData() {
         }));
         setLastMessageAt(Date.now());
       },
-    });
-    return unsubscribe;
+    };
+
+    import("../integrations/mqttClient")
+      .then(({ subscribeToMqtt }) => {
+        // The effect may have been torn down while the chunk was in flight.
+        if (cancelled) return;
+        unsubscribe = subscribeToMqtt(handlers);
+      })
+      .catch((error) => {
+        setMqttStatus("error");
+        setMqttError(error?.message || "Could not load the MQTT client");
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   // Demo scenario engine — advances a simulated emergency once per second.
