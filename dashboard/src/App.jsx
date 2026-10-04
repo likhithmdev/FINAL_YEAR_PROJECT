@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { Suspense, lazy, useCallback, useState } from "react";
 import {
   Activity,
   Ambulance,
@@ -18,13 +18,16 @@ import {
   writeTrip,
 } from "./integrations/firebaseClient";
 import { useOperationsData } from "./hooks/useOperationsData";
-import OperationsView from "./views/OperationsView";
-import JunctionsView from "./views/JunctionsView";
-import FleetView from "./views/FleetView";
-import HospitalsView from "./views/HospitalsView";
-import AlertsView from "./views/AlertsView";
-import SystemView from "./views/SystemView";
 import { Badge, Dot } from "./components/ui";
+
+// Each console view is its own chunk, so the initial load only pays for the
+// shell plus the live-operations screen the operator actually lands on.
+const OperationsView = lazy(() => import("./views/OperationsView"));
+const JunctionsView = lazy(() => import("./views/JunctionsView"));
+const FleetView = lazy(() => import("./views/FleetView"));
+const HospitalsView = lazy(() => import("./views/HospitalsView"));
+const AlertsView = lazy(() => import("./views/AlertsView"));
+const SystemView = lazy(() => import("./views/SystemView"));
 import { seedDemoHospitals, seedDemoInfrastructure } from "./lib/seed";
 import { ageSeconds } from "./lib/format";
 
@@ -42,6 +45,19 @@ const NAV = [
 ];
 
 const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+// Shown while a lazily-imported view chunk is in flight. Reuses the existing
+// card/empty styling so it never flashes a different-looking screen.
+function ViewFallback() {
+  return (
+    <div className="card" style={{ display: "grid", placeItems: "center", minHeight: 240 }}>
+      <div className="empty">
+        <Activity size={26} />
+        <strong>Loading view…</strong>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const data = useOperationsData();
@@ -306,22 +322,24 @@ export default function App() {
           {data.demo.mode ? <Badge tone="amber"><Radio size={11} /> demo scenario</Badge> : null}
         </header>
 
-        {view === "operations" && (
-          <OperationsView
-            data={data}
-            follow={follow}
-            setFollow={setFollow}
-            onRelease={releaseCorridor}
-            onFocus={focusOn}
-          />
-        )}
-        {view === "junctions" && (
-          <JunctionsView data={data} onAction={handleJunctionAction} busy={busy || data.demo.mode} />
-        )}
-        {view === "fleet" && <FleetView data={data} onFocus={focusOn} />}
-        {view === "hospitals" && <HospitalsView data={data} />}
-        {view === "alerts" && <AlertsView data={data} />}
-        {view === "system" && <SystemView data={data} onSeed={handleSeed} seeding={busy} />}
+        <Suspense fallback={<ViewFallback />}>
+          {view === "operations" && (
+            <OperationsView
+              data={data}
+              follow={follow}
+              setFollow={setFollow}
+              onRelease={releaseCorridor}
+              onFocus={focusOn}
+            />
+          )}
+          {view === "junctions" && (
+            <JunctionsView data={data} onAction={handleJunctionAction} busy={busy || data.demo.mode} />
+          )}
+          {view === "fleet" && <FleetView data={data} onFocus={focusOn} />}
+          {view === "hospitals" && <HospitalsView data={data} />}
+          {view === "alerts" && <AlertsView data={data} />}
+          {view === "system" && <SystemView data={data} onSeed={handleSeed} seeding={busy} />}
+        </Suspense>
       </div>
 
       <nav className="mobile-nav">

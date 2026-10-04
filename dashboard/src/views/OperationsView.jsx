@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import {
   Activity,
   Ambulance,
@@ -12,12 +12,23 @@ import {
   Siren,
   TrafficCone,
 } from "lucide-react";
-import MapPanel from "../components/MapPanel";
 import EventFeed from "../components/EventFeed";
 import { Badge, Dot, Empty, Panel, SignalDots, Stat, Toggle, preemptionLabel, signalLabel } from "../components/ui";
 import { formatDistance, formatEta } from "../lib/format";
 import { compassLabel } from "../lib/geo";
 import { severityLabel, severityTone } from "../lib/model";
+
+// Leaflet and its CSS are the heaviest dependency in the console and are only
+// needed once the map scrolls into view, so the map lives in its own chunk.
+const MapPanel = lazy(() => import("../components/MapPanel"));
+
+function MapFallback() {
+  return (
+    <div className="empty" style={{ minHeight: 320 }}>
+      <strong>Loading map…</strong>
+    </div>
+  );
+}
 
 function CorridorPanel({ corridor, onRelease, onFocus }) {
   const { ambulance, destination, nearestJunction, position, speed, headingDeg } = corridor;
@@ -157,7 +168,9 @@ export default function OperationsView({ data, onRelease, follow, setFollow, onF
 
       <div className="ops-grid">
         <Panel className="map-card" title={null}>
-          <MapPanel corridors={corridors} junctions={junctions} hospitals={hospitals} follow={follow} />
+          <Suspense fallback={<MapFallback />}>
+            <MapPanel corridors={corridors} junctions={junctions} hospitals={hospitals} follow={follow} />
+          </Suspense>
         </Panel>
 
         {corridors.length ? (
