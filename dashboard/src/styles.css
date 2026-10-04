@@ -707,6 +707,11 @@ p {
   position: relative;
   height: 480px;
   background: #0a1017;
+  /* Leaflet sets high internal z-indexes (up to 1000 for its controls).
+     Without an isolated stacking context they escape the map and paint over
+     the fixed mobile navigation, making the bottom nav unclickable whenever
+     the map sits behind it. */
+  isolation: isolate;
 }
 
 .map-wrap.leaflet-container,
