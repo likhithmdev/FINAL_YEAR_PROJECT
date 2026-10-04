@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   dashboard:
-    name: Dashboard build
+    name: Dashboard tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test the console
+        run: npm test
+
       - name: Build the console
         run: npm run build
 
@@ -56,7 +59,7 @@ jobs:
           if-no-files-found: error
 
   android:
-    name: Android build
+    name: Android tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -100,8 +103,10 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Assemble the debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+      # One Gradle invocation for both, so the daemon starts once but tests
+      # still gate the APK.
+      - name: Run unit tests and assemble the debug APK
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest assembleDebug
 
       - name: Upload the debug APK
         uses: actions/upload-artifact@v4
