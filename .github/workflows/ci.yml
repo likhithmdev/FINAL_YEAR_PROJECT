@@ -1,0 +1,111 @@
+# Verifies the whole repository on every push: the React/Vite control-room
+# console and the Kotlin/Compose driver app are independent build systems, so
+# they are separate jobs and a failure in one does not hide the other.
+#
+# No `paths:` filters on purpose — every push verifies both surfaces. The
+# Android job is the expensive one; see the README note on skipping it for
+# dashboard-only changes if CI minutes become a concern.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    name: Dashboard build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Node 22 is what the dashboard is developed against locally.
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      # `npm ci` (not `install`) so the lockfile is authoritative and an
+      # out-of-sync package.json fails here rather than silently drifting.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the console
+        run: npm run build
+
+      - name: Upload the built console
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist
+          if-no-files-found: error
+
+  android:
+    name: Android build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile_app
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # AGP 8.5.2 and Kotlin 2.0.21 both require a JDK 17 toolchain.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: mobile_app
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      # `mobile_app/app/google-services.json` is gitignored, but the
+      # `com.google.gms.google-services` plugin refuses to build without it.
+      - name: Provide google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "Using the GOOGLE_SERVICES_JSON repository secret."
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON is not set; writing a placeholder so the build can still verify compilation. The APK will not be able to reach Firebase."
+            printf '%s' '{"project_info":{"project_number":"735414353984","firebase_url":"https://smart-ambulance-36f9d-default-rtdb.firebaseio.com","project_id":"smart-ambulance-36f9d","storage_bucket":"smart-ambulance-36f9d.firebasestorage.app"},"client":[{"client_info":{"mobilesdk_app_id":"1:735414353984:android:41c66c4c3c01780f4e9fa5","android_client_info":{"package_name":"com.smartambulance.driver"}},"oauth_client":[],"api_key":[{"current_key":"ci-placeholder-no-firebase-access"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > app/google-services.json
+          fi
+
+      # `gradlew` is committed without the executable bit (mode 100644), which
+      # Linux runners reject at invocation time.
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Assemble the debug APK
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-ambulance-driver-debug
+          path: mobile_app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
