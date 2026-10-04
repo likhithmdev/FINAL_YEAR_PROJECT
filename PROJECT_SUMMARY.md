@@ -145,21 +145,27 @@ The Smart Ambulance Priority Traffic Control System is an emergency-response pla
 - `HospitalOption`: Hospital details with distance and ETA
 - `Hospital`: OpenStreetMap hospital data
 
-### 4. Web Dashboard
+### 4. Web Dashboard (Operations Console)
 **Framework**: React + Vite
 
 **Features**:
-- Live ambulance map with Leaflet
-- Firebase Realtime Database integration
-- MQTT over WebSockets for real-time updates
-- Emergency trip visualization
-- Junction status monitoring
-- Telemetry display
+- Six-view operations console: Live ops, Junctions, Ambulances, Hospitals, Alerts, System
+- Live ambulance map with Leaflet (key-free OSM tiles, corridor route, follow mode)
+- Firebase Realtime Database integration and MQTT over WebSockets, merged per-key by recency
+- Active-response corridor card with derived ETA / distance / speed and junction preemption state
+- Junction control-room override plus a tabletop hardware simulator (GPS/RSSI/RFID/timeout)
+- Hospital bed availability, inbound alerts and trauma-bay readiness
+- Unified junction + hospital alert stream
+- Service health, data freshness and explicit seeding
+- Fully responsive: desktop sidebar, mobile bottom navigation
+- `?demo=1` simulated corridor for hardware-free demos
 
-**Components**:
-- `AmbulanceMap`: Leaflet map with ambulance markers
-- Firebase client for data synchronization
-- MQTT client for live updates
+**Modules**:
+- `views/*`: one module per console view
+- `hooks/useOperationsData.js`: merges Firebase + MQTT + demo into a single model
+- `components/MapPanel.jsx`, `components/EventFeed.jsx`, `components/ui.jsx`
+- `integrations/firebaseClient.js`, `integrations/mqttClient.js`, `integrations/mqttTopics.js`
+- `lib/geo.js` (Haversine/bearing/ETA), `lib/format.js`, `lib/model.js`, `lib/demoScenario.js`, `lib/seed.js`
 
 ## Data Flow
 
@@ -424,8 +430,12 @@ smart_ambulance/
 │   └── build.gradle.kts
 ├── dashboard/
 │   ├── src/
+│   │   ├── views/
 │   │   ├── components/
+│   │   ├── hooks/
 │   │   ├── integrations/
+│   │   ├── lib/
+│   │   ├── App.jsx
 │   │   ├── main.jsx
 │   │   └── styles.css
 │   ├── package.json
