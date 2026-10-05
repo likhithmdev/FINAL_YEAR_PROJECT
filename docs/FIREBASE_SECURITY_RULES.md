@@ -1,5 +1,18 @@
 # Firebase Realtime Database Security Rules
 
+> ⚠️ **DO NOT DEPLOY THIS RULESET AS WRITTEN — it is not the deployed source of
+> truth.** It is kept for reference only.
+>
+> These rules key role checks on `root.child('users').child(auth.uid)`, but that
+> mapping does not exist in this system: the Android app signs in
+> **anonymously** (so `auth.uid` is an anonymous UID, never `driver_001`), and
+> the ESP32 firmware holds **no credentials at all**. Applying these rules would
+> lock out both the phone app and the hardware.
+>
+> The version-controlled, deployable rules live in [`database.rules.json`](../database.rules.json),
+> with rollout instructions and the list of remaining gaps in
+> [`FIREBASE_RULES_DEPLOYMENT.md`](FIREBASE_RULES_DEPLOYMENT.md).
+
 ## Production Security Rules for Smart Ambulance System
 
 These rules provide secure access control based on user authentication and roles while allowing the necessary data access for the Smart Ambulance system.

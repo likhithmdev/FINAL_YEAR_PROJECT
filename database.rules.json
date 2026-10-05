@@ -1,0 +1,75 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null",
+      "$userId": {
+        ".write": "auth != null"
+      }
+    },
+
+    "drivers": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "emergencyTrips": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "hospitals": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "hospitalAlerts": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "policeAlerts": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "rfidTags": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "systemStatus": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "junctions": {
+      ".read": "auth != null",
+      "$junctionId": {
+        ".write": true
+      }
+    },
+
+    "ambulances": {
+      ".read": "auth != null",
+      "$ambulanceId": {
+        ".write": "auth != null",
+        "lastLocation": {
+          ".write": true
+        }
+      }
+    },
+
+    "loraTelemetry": {
+      ".read": "auth != null",
+      ".write": true
+    },
+
+    "junctionEvents": {
+      ".read": "auth != null",
+      ".write": true
+    }
+  }
+}

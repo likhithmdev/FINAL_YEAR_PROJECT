@@ -21,6 +21,24 @@ permissions:
   contents: read
 
 jobs:
+  # Cheap and dependency-free, so it runs first: the security rules are the one
+  # artefact where a mistake is invisible locally and harmful in production.
+  rules:
+    name: Database rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Check the Realtime Database rules
+        run: node scripts/check-database-rules.mjs
+
   dashboard:
     name: Dashboard tests and build
     runs-on: ubuntu-latest
