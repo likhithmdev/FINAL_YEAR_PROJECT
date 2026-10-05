@@ -18,7 +18,9 @@ import {
   writeTrip,
 } from "./integrations/firebaseClient";
 import { useOperationsData } from "./hooks/useOperationsData";
+import { useAuth } from "./hooks/useAuth";
 import { Badge, Dot } from "./components/ui";
+import LoginGate from "./components/LoginGate";
 
 // Each console view is its own chunk, so the initial load only pays for the
 // shell plus the live-operations screen the operator actually lands on.
@@ -59,7 +61,9 @@ function ViewFallback() {
   );
 }
 
-export default function App() {
+// The authenticated console. Mounted only once an operator is signed in, so
+// the data subscriptions below never run against rules that would deny them.
+function Console({ operator, onSignOut }) {
   const data = useOperationsData();
   const [view, setView] = useState("operations");
   const [follow, setFollow] = useState(false);
@@ -303,6 +307,17 @@ export default function App() {
               <span className="mono dim">{Math.floor(dataAge)}s</span>
             </div>
           ) : null}
+          {operator ? (
+            <div className="operator">
+              <div className="label">Operator</div>
+              <div className="operator-name mono" title={operator}>
+                {operator}
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={onSignOut}>
+                Sign out
+              </button>
+            </div>
+          ) : null}
         </div>
       </aside>
 
@@ -391,5 +406,39 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function AuthSplash() {
+  return (
+    <div className="login-shell">
+      <div className="card login-card">
+        <div className="brand">
+          <div className="brand-badge">
+            <Siren size={22} />
+          </div>
+          <div>
+            <div className="brand-title">SAPTCS</div>
+            <div className="brand-sub">Control Room</div>
+          </div>
+        </div>
+        <div className="empty">
+          <strong>Restoring session…</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Entry point. Live data requires an operator session because the Realtime
+// Database rules require `auth != null`; the offline demo deliberately does
+// not, so the console stays demonstrable with no credentials or network.
+export default function App() {
+  const demoMode = new URLSearchParams(window.location.search).get("demo") === "1";
+  const { ready, user, operator, signOut } = useAuth();
+
+  if (demoMode) return <Console operator={null} onSignOut={null} />;
+  if (!ready) return <AuthSplash />;
+  if (!user) return <LoginGate />;
+  return <Console operator={operator} onSignOut={signOut} />;
 }
 

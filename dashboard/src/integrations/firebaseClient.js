@@ -1,5 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase, onValue, push, ref, set, update } from "firebase/database";
+import {
+  browserSessionPersistence,
+  getAuth,
+  onAuthStateChanged,
+  setPersistence,
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyCqg4gsohXZZB3wBEeAKR1wND-vYTg9H70",
@@ -30,6 +38,71 @@ export const firebasePaths = {
 
 export const firebaseApp = initializeApp(firebaseConfig);
 export const database = getDatabase(firebaseApp);
+export const auth = getAuth(firebaseApp);
+
+// --------------------------------------------------------------- auth gate --
+// The Realtime Database rules require `auth != null`, so nothing is readable
+// until an operator signs in. Every subscribe/write helper below therefore
+// assumes an authenticated session.
+
+// Session-scoped on purpose: a control-room workstation is shared, so closing
+// the browser should end the session rather than leave the console open.
+let persistenceReady;
+function ensurePersistence() {
+  if (!persistenceReady) {
+    persistenceReady = setPersistence(auth, browserSessionPersistence).catch(() => {
+      /* Non-fatal: fall back to the SDK default (local) persistence. */
+    });
+  }
+  return persistenceReady;
+}
+
+// Turns Firebase's error codes into something an operator can act on. The
+// provider-not-enabled case is the most likely first-run failure and its raw
+// code is opaque.
+export function describeAuthError(error) {
+  const code = error?.code || "";
+  switch (code) {
+    case "auth/invalid-email":
+      return "That email address is not valid.";
+    case "auth/missing-password":
+      return "Enter a password.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Wrong email or password.";
+    case "auth/user-disabled":
+      return "This account has been disabled.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Wait a moment and try again.";
+    case "auth/operation-not-allowed":
+    case "auth/configuration-not-found":
+      return "Email/password sign-in is not enabled for this Firebase project. Enable it under Authentication > Sign-in method.";
+    case "auth/network-request-failed":
+      return "Cannot reach Firebase. Check the network connection.";
+    default:
+      return error?.message || "Sign-in failed.";
+  }
+}
+
+export async function signInOperator(email, password) {
+  await ensurePersistence();
+  return signInWithEmailAndPassword(auth, email, password);
+}
+
+export function signOutOperator() {
+  return signOut(auth);
+}
+
+// Reports the current operator. `ready` stays false until the SDK has restored
+// any existing session, so the UI does not flash the login screen on reload.
+export function subscribeToAuth(onChange) {
+  return onAuthStateChanged(
+    auth,
+    (user) => onChange({ ready: true, user }),
+    (error) => onChange({ ready: true, user: null, error }),
+  );
+}
 
 // Subscribe to the whole control-room tree. onError receives an Error when
 // rules/network refuse access so the UI can fall back gracefully instead of

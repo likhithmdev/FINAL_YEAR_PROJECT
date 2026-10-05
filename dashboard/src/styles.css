@@ -1005,3 +1005,125 @@ table.data th.mono {
     max-width: none;
   }
 }
+
+/* --------------------------------------------------------- operator sign-in - */
+
+.login-shell {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background: radial-gradient(1200px 600px at 50% -10%, #12203a 0%, var(--bg) 60%);
+}
+
+.login-card {
+  width: min(430px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  box-shadow: var(--shadow);
+}
+
+.login-heading {
+  margin: 6px 0 0;
+  font-size: 1.18rem;
+}
+
+.login-sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text);
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.login-submit {
+  justify-content: center;
+}
+
+.login-error {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 35, 60, 0.12);
+  border: 1px solid rgba(239, 35, 60, 0.35);
+  color: #ffd7dc;
+  font-size: 0.8rem;
+}
+
+.login-alt {
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.login-demo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.login-demo-link:hover {
+  color: var(--blue);
+}
+
+.login-alt .dim {
+  font-size: 0.72rem;
+}
+
+.operator {
+  display: grid;
+  gap: 4px;
+  padding-top: 10px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.operator .label {
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.operator-name {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -94,8 +94,14 @@ export function useOperationsData() {
   const [demoState, setDemoState] = useState(null);
   const [now, setNow] = useState(() => Date.now());
 
-  // Firebase Realtime Database — the durable source of truth.
+  // Firebase Realtime Database — the durable source of truth. Skipped in demo
+  // mode, which is meant to run with no account and no network; without this
+  // an unauthenticated demo session would collect spurious permission errors.
   useEffect(() => {
+    if (demoMode) {
+      setFirebaseReady(true);
+      return undefined;
+    }
     const unsubscribe = subscribeToDashboardData(
       (data) => {
         setFirebaseData(data);
@@ -108,12 +114,17 @@ export function useOperationsData() {
       },
     );
     return unsubscribe;
-  }, []);
+  }, [demoMode]);
 
   // MQTT — low-latency device telemetry and events. The client is the single
   // heaviest dependency in the console, so it is imported dynamically and
   // arrives after the operator has already seen the first paint.
   useEffect(() => {
+    if (demoMode) {
+      setMqttStatus("demo");
+      return undefined;
+    }
+
     let cancelled = false;
     let unsubscribe = () => {};
 
@@ -179,7 +190,7 @@ export function useOperationsData() {
       cancelled = true;
       unsubscribe();
     };
-  }, []);
+  }, [demoMode]);
 
   // Demo scenario engine — advances a simulated emergency once per second.
   useEffect(() => {
