@@ -1,0 +1,97 @@
+# Compiles every firmware sketch on a GitHub runner so a broken change fails
+# here instead of on the hardware. The firmware is a third, independent build
+# system (arduino-cli targeting ESP32 and AVR), which is why it lives in its
+# own workflow rather than beside the dashboard and driver-app jobs in ci.yml.
+#
+# Unlike ci.yml this workflow is path-filtered: firmware only ever depends on
+# files under firmware/, so a dashboard or Android commit has nothing to verify
+# here and would only burn runner minutes.
+
+name: Firmware
+
+on:
+  push:
+    paths:
+      - "firmware/**"
+      - ".github/workflows/firmware.yml"
+  pull_request:
+    paths:
+      - "firmware/**"
+      - ".github/workflows/firmware.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # One matrix entry per sketch so a failure names the board that broke and the
+  # other sketches still get compiled (fail-fast is off on purpose).
+  compile:
+    name: Compile ${{ matrix.sketch }} (${{ matrix.board }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Three ESP32 sketches: the ambulance unit, the LoRa-to-MQTT bridge
+          # and the junction signal controller.
+          - sketch: firmware/ambulance_unit
+            fqbn: esp32:esp32:esp32
+            board: ESP32 Dev Module
+          - sketch: firmware/lora_receiver_esp32
+            fqbn: esp32:esp32:esp32
+            board: ESP32 Dev Module
+          - sketch: firmware/traffic_signal_unit
+            fqbn: esp32:esp32:esp32
+            board: ESP32 Dev Module
+          # The MFRC522 traffic controller is a plain AVR sketch, not an ESP32
+          # one, and only compiles against an Arduino UNO target.
+          - sketch: firmware/arduino_traffic_controller
+            fqbn: arduino:avr:uno
+            board: Arduino Uno
+    env:
+      # esp32:esp32 is not in the default Boards Manager index; arduino:avr is.
+      ESP32_INDEX_URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2.0.0
+
+      - name: Install the board cores
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli core update-index --additional-urls "$ESP32_INDEX_URL"
+          arduino-cli core install esp32:esp32 arduino:avr --additional-urls "$ESP32_INDEX_URL"
+          arduino-cli core list
+
+      # Every library is pinned to an exact version. This is not optional:
+      # the sketches use the ArduinoJson v6 API (StaticJsonDocument), so an
+      # unpinned `lib install ArduinoJson` would resolve to v7 and break the
+      # build. Pinning the rest the same way keeps an upstream release from
+      # turning this check red on its own.
+      - name: Install the pinned libraries
+        run: |
+          arduino-cli lib install \
+            "ArduinoJson@6.21.6" \
+            "LoRa@0.8.0" \
+            "TinyGPSPlus@1.0.3" \
+            "Adafruit SSD1306@2.5.17" \
+            "Adafruit GFX Library@1.12.6" \
+            "Adafruit BusIO@1.17.4" \
+            "MFRC522@1.4.12" \
+            "PubSubClient@2.8.0"
+          arduino-cli lib list
+
+      - name: Compile the sketch
+        run: |
+          arduino-cli compile \
+            --fqbn "${{ matrix.fqbn }}" \
+            --warnings default \
+            "${{ matrix.sketch }}"
