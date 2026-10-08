@@ -23,3 +23,6 @@ Thumbs.db
 
 # Firebase configuration (keep local, never commit)
 mobile_app/app/google-services.json
+
+# Local tooling metadata (agent/editor state, not part of the project)
+.freebuff/
