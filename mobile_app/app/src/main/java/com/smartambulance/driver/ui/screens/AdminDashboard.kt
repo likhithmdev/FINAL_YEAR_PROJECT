@@ -1,704 +1,349 @@
 package com.smartambulance.driver.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Traffic
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.smartambulance.driver.data.AdminSummary
 import com.smartambulance.driver.data.AppUser
-import com.smartambulance.driver.ui.components.common.StatCard
-import com.smartambulance.driver.ui.components.common.StatusBadge
-import com.smartambulance.driver.ui.components.common.ToggleSwitch
-import com.smartambulance.driver.ui.theme.*
+import com.smartambulance.driver.ui.components.design.ActionButton
+import com.smartambulance.driver.ui.components.design.ActionTone
+import com.smartambulance.driver.ui.components.design.AppHeaderBar
+import com.smartambulance.driver.ui.components.design.EmptyState
+import com.smartambulance.driver.ui.components.design.InfoBanner
+import com.smartambulance.driver.ui.components.design.LabelledField
+import com.smartambulance.driver.ui.components.design.MetricTile
+import com.smartambulance.driver.ui.components.design.SaptcsCard
+import com.smartambulance.driver.ui.components.design.ScrollableTabs
+import com.smartambulance.driver.ui.components.design.SectionHeader
+import com.smartambulance.driver.ui.components.design.TabBody
+import com.smartambulance.driver.ui.components.design.TileRow
+import com.smartambulance.driver.ui.theme.AdminAmber
+import com.smartambulance.driver.ui.theme.CanvasGradient
+import com.smartambulance.driver.ui.theme.HospitalGreen
+import com.smartambulance.driver.ui.theme.PoliceBlue
+import com.smartambulance.driver.ui.theme.PrimaryRed
+import com.smartambulance.driver.ui.theme.SecondaryAmber
+import com.smartambulance.driver.ui.theme.Spacing
+import com.smartambulance.driver.ui.theme.SuccessGreen
+import com.smartambulance.driver.ui.theme.TextMuted
 
 /**
- * Upgraded Admin Dashboard with horizontal scrollable navigation
+ * Registry writes the console performs. Split by record type so each form maps
+ * to exactly one repository call.
  */
+data class AdminActions(
+    val refresh: () -> Unit,
+    val deactivate: (operatorId: String) -> Unit,
+    val saveDriver: (operatorId: String, name: String, ambulanceId: String, phone: String) -> Unit,
+    val savePolice: (operatorId: String, name: String, junctionId: String) -> Unit,
+    val saveHospitalDesk: (operatorId: String, name: String, hospitalId: String) -> Unit,
+    val saveHospital: (hospitalId: String, name: String, beds: Int, phone: String) -> Unit,
+    val saveAmbulance: (ambulanceId: String, driverId: String, rfidTagId: String) -> Unit,
+    val saveJunction: (junctionId: String, name: String, activeLane: String) -> Unit
+)
+
+private data class FormField(
+    val key: String,
+    val label: String,
+    val numeric: Boolean = false
+)
+
+/**
+ * One registry form. Keeps every write path in the console identical in shape:
+ * labelled fields, a submit button that is disabled until the required fields
+ * are filled, and no optimistic success message.
+ */
+@Composable
+private fun RegistryForm(
+    title: String,
+    hint: String,
+    accent: Color,
+    fields: List<FormField>,
+    submitLabel: String,
+    onSubmitted: (Map<String, String>) -> Unit
+) {
+    val values = remember {
+        mutableStateMapOf<String, String>().apply { fields.forEach { put(it.key, "") } }
+    }
+    val complete = fields.all { values[it.key]?.isNotBlank() == true }
+
+    SectionHeader(title = title, accent = accent)
+
+    SaptcsCard(accent = accent, contentPadding = PaddingValues(Spacing.lg)) {
+        Text(hint, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+        Spacer(Modifier.height(Spacing.md))
+
+        fields.forEachIndexed { position, field ->
+            if (position > 0) Spacer(Modifier.height(Spacing.sm))
+            LabelledField(
+                value = values[field.key].orEmpty(),
+                onValueChange = { values[field.key] = it },
+                label = field.label,
+                numeric = field.numeric
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.lg))
+
+        ActionButton(
+            label = submitLabel,
+            onClick = { onSubmitted(values.toMap()) },
+            tone = ActionTone.Solid,
+            accent = accent,
+            enabled = complete,
+            height = 48.dp
+        )
+    }
+}
+
 @Composable
 fun AdminDashboard(
     user: AppUser,
     message: String,
-    records: String,
-    actions: Any,
+    summary: AdminSummary?,
+    actions: AdminActions,
+    demoMode: Boolean,
     onLogout: () -> Unit
 ) {
     var selectedSection by remember { mutableIntStateOf(0) }
-    val sections = listOf("Overview", "Users", "Vehicles", "Hospitals", "Junctions")
+    val sections = listOf("Overview", "Driver", "Police", "Hospital", "Fleet", "Junction")
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
-            .padding(16.dp)
+            .background(CanvasGradient)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = CardBackground,
-                    shape = RoundedCornerShape(12.dp)
+        AppHeaderBar(
+            accent = AdminAmber,
+            eyebrow = "System admin",
+            title = user.name,
+            subtitle = user.userId,
+            icon = Icons.Filled.AdminPanelSettings,
+            onLogout = onLogout
+        )
+
+        if (demoMode) {
+            Box(Modifier.padding(horizontal = Spacing.lg)) {
+                InfoBanner(
+                    text = "Offline demo · the registry below is canned sample data and nothing " +
+                        "you submit is written anywhere",
+                    accent = SecondaryAmber,
+                    emphasized = true,
+                    icon = Icons.Filled.Shield
                 )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            }
+            Spacer(Modifier.height(Spacing.md))
+        }
+
+        ScrollableTabs(
+            tabs = sections,
+            selectedIndex = selectedSection,
+            onSelect = { selectedSection = it },
+            accent = AdminAmber,
+            modifier = Modifier.padding(horizontal = Spacing.lg)
+        )
+
+        Spacer(Modifier.height(Spacing.md))
+
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.lg)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(AdminAmber.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Admin",
-                        tint = AdminAmber,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+            when (selectedSection) {
+                0 -> OverviewSection(message = message, summary = summary, actions = actions)
+                1 -> DriverSection(actions = actions)
+                2 -> PoliceSection(actions = actions)
+                3 -> HospitalSection(actions = actions)
+                4 -> FleetSection(actions = actions)
+                else -> JunctionSection(actions = actions)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverviewSection(
+    message: String,
+    summary: AdminSummary?,
+    actions: AdminActions
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        InfoBanner(
+            text = message,
+            accent = AdminAmber,
+            emphasized = message.contains("could not", ignoreCase = true) ||
+                message.contains("failed", ignoreCase = true),
+            icon = Icons.Filled.AdminPanelSettings
+        )
+
+        Spacer(Modifier.height(Spacing.md))
+
+        TileRow {
+            MetricTile(
+                label = "Operators",
+                value = summary?.users?.size?.toString() ?: "—",
+                accent = PoliceBlue,
+                icon = Icons.Filled.People,
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                label = "Ambulances",
+                value = summary?.ambulances?.size?.toString() ?: "—",
+                accent = PrimaryRed,
+                icon = Icons.Filled.LocalShipping,
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                label = "Junctions",
+                value = summary?.junctions?.size?.toString() ?: "—",
+                accent = SecondaryAmber,
+                icon = Icons.Filled.Traffic,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.sm))
+
+        TileRow {
+            MetricTile(
+                label = "Hospitals",
+                value = summary?.hospitals?.size?.toString() ?: "—",
+                accent = HospitalGreen,
+                icon = Icons.Filled.LocalHospital,
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                label = "RFID tags",
+                value = summary?.rfidTags?.size?.toString() ?: "—",
+                accent = SuccessGreen,
+                icon = Icons.Filled.Badge,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.md))
+
+        ActionButton(
+            label = "Refresh registry",
+            onClick = actions.refresh,
+            tone = ActionTone.Tinted,
+            accent = AdminAmber,
+            leadingIcon = Icons.Filled.Refresh
+        )
+
+        if (summary == null) {
+            Spacer(Modifier.height(Spacing.md))
+            EmptyState(
+                icon = Icons.Filled.AdminPanelSettings,
+                title = "Loading registry",
+                body = "Reading the users, ambulances, hospitals, tags and junctions nodes.",
+                accent = TextMuted
+            )
+        } else {
+            RegistryList("Operators", summary.users, PoliceBlue) { operatorId ->
+                actions.deactivate(operatorId)
+            }
+            RegistryList("Ambulances", summary.ambulances, PrimaryRed)
+            RegistryList("Hospitals", summary.hospitals, HospitalGreen)
+            RegistryList("RFID tags", summary.rfidTags, SuccessGreen)
+            RegistryList("Junctions", summary.junctions, SecondaryAmber)
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+/**
+ * A registry listing. Operator rows carry a deactivate action; the identifier is
+ * read back out of the "label (id)" format the repository produces.
+ */
+@Composable
+private fun RegistryList(
+    title: String,
+    entries: List<String>,
+    accent: Color,
+    onDeactivate: ((String) -> Unit)? = null
+) {
+    SectionHeader(
+        title = title,
+        accent = accent,
+        trailing = {
+            Text(
+                text = if (entries.isEmpty()) "Empty" else "${entries.size}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted
+            )
+        }
+    )
+
+    SaptcsCard(accent = accent, contentPadding = PaddingValues(Spacing.lg)) {
+        if (entries.isEmpty()) {
+            Text(
+                text = "Nothing registered yet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted
+            )
+        } else {
+            entries.forEachIndexed { position, entry ->
+                if (position > 0) Spacer(Modifier.height(Spacing.sm))
                 Column {
                     Text(
-                        text = user.name,
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "ADM-001 · SAPTCS Admin",
+                        text = entry,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextMuted,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                }
-            }
-            IconButton(onClick = onLogout) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                    contentDescription = "Exit",
-                    tint = TextPrimary
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Horizontal Scrollable Nav
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            sections.forEachIndexed { index, section ->
-                Box(
-                    modifier = Modifier
-                        .background(
-                            color = if (selectedSection == index) AdminAmber.copy(alpha = 0.2f) else CardBackground,
-                            shape = RoundedCornerShape(20.dp)
-                        )
-
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .clickable { selectedSection = index }
-                ) {
-                    Text(
-                        text = section,
-                        color = if (selectedSection == index) AdminAmber else TextMuted,
-                        fontSize = 12.sp,
-                        fontWeight = if (selectedSection == index) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Section Content
-        when (selectedSection) {
-            0 -> OverviewSection(records = records)
-            1 -> UsersSection()
-            2 -> VehiclesSection()
-            3 -> HospitalsSection()
-            4 -> JunctionsSection()
-        }
-    }
-}
-
-@Composable
-fun OverviewSection(records: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        // 2x2 Stat Card Grid
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatCard(
-                label = "Active Trips",
-                value = "3",
-                valueColor = PrimaryRed,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                label = "Online Users",
-                value = "8",
-                valueColor = PoliceBlue,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatCard(
-                label = "Ambulances",
-                value = "4/5",
-                valueColor = AdminAmber,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                label = "Junctions Clear",
-                value = "3/4",
-                valueColor = SuccessGreen,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // System Health Card
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = CardBackground,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(16.dp)
-        ) {
-            Column {
-                Text(
-                    text = "System Health",
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "Firebase DB" to "99.5%",
-                        "LoRa" to "98.2%",
-                        "GPS" to "97.8%",
-                        "RFID" to "99.9%",
-                        "Hospital API" to "96.5%"
-                    ).forEach { (service, uptime) ->
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(SuccessGreen)
-                                )
-                                Text(
-                                    text = service,
-                                    color = TextPrimary,
-                                    fontSize = 12.sp
-                                )
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = uptime,
-                                    color = TextPrimary,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                StatusBadge(
-                                    text = "online",
-                                    backgroundColor = SuccessGreen.copy(alpha = 0.2f),
-                                    textColor = SuccessGreen
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Recent Events Log
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = CardBackground,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(16.dp)
-        ) {
-            Column {
-                Text(
-                    text = "Recent Events",
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        Triple("Emergency", "Trip TRIP001 started by driver_001", PrimaryRed),
-                        Triple("RFID", "Junction JNC001 cleared by AMB001", SuccessGreen),
-                        Triple("Hospital", "Bay readiness updated at HOSP001", HospitalGreen),
-                        Triple("Auth", "User driver_002 logged in", PoliceBlue)
-                    ).forEach { (type, message, color) ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = message,
-                                    color = TextPrimary,
-                                    fontSize = 12.sp
-                                )
-                                Text(
-                                    text = "2 min ago",
-                                    color = TextMuted,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun UsersSection() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Users",
-                color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = AdminAmber.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { }
-            ) {
-                Text(
-                    text = "+ Add User",
-                    color = AdminAmber,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                Triple("Driver", "driver_001", DriverRed),
-                Triple("Police", "police_001", PoliceBlue),
-                Triple("Hospital", "hospital_001", HospitalGreen),
-                Triple("Admin", "admin_001", AdminAmber)
-            ).forEach { (role, username, color) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            StatusBadge(
-                                text = role,
-                                backgroundColor = color.copy(alpha = 0.2f),
-                                textColor = color
-                            )
-                            Column {
-                                Text(
-                                    text = when (role) {
-                                        "Driver" -> "Driver One"
-                                        "Police" -> "Traffic Police"
-                                        "Hospital" -> "City Care Desk"
-                                        else -> "System Admin"
-                                    },
-                                    color = TextPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = username,
-                                    color = TextMuted,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-                        ToggleSwitch(
-                            isOn = true,
-                            onToggle = { }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun VehiclesSection() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Vehicles",
-                color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = AdminAmber.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { }
-            ) {
-                Text(
-                    text = "+ Register",
-                    color = AdminAmber,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                "AMB001" to "KA-01-AB-1234",
-                "AMB002" to "KA-01-CD-5678"
-            ).forEach { (id, plate) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = id,
-                                color = TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            StatusBadge(
-                                text = "ACTIVE",
-                                backgroundColor = SuccessGreen.copy(alpha = 0.2f),
-                                textColor = SuccessGreen
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Driver",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = "driver_001",
-                                        color = TextPrimary,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "RFID Tag",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = "RFID_TAG_001",
-                                        color = TextPrimary,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Last Seen",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = "2 min ago",
-                                        color = TextPrimary,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Status",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = "On Route",
-                                        color = SuccessGreen,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun HospitalsSection() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Hospitals",
-                color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = AdminAmber.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { }
-            ) {
-                Text(
-                    text = "+ Add",
-                    color = AdminAmber,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                Triple("City Care Hospital", "HOSP001", 8),
-                Triple("Metro Emergency Center", "HOSP002", 3),
-                Triple("St. Mark Trauma Unit", "HOSP003", 11)
-            ).forEach { (name, id, beds) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            Text(
-                                text = name,
-                                color = TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = id,
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "${beds} beds",
-                                color = TextMuted,
-                                fontSize = 12.sp
-                            )
-                            StatusBadge(
-                                text = if (beds > 0) "AVAILABLE" else "FULL",
-                                backgroundColor = if (beds > 0) SuccessGreen.copy(alpha = 0.2f) else PrimaryRed.copy(alpha = 0.2f),
-                                textColor = if (beds > 0) SuccessGreen else PrimaryRed
+                    if (onDeactivate != null) {
+                        val id = entry.substringAfter('(', "").substringBefore(')')
+                        if (id.isNotBlank()) {
+                            Spacer(Modifier.height(Spacing.xs))
+                            ActionButton(
+                                label = "Deactivate $id",
+                                onClick = { onDeactivate(id) },
+                                tone = ActionTone.Outline,
+                                accent = PrimaryRed,
+                                height = 38.dp
                             )
                         }
                     }
@@ -709,179 +354,179 @@ fun HospitalsSection() {
 }
 
 @Composable
-fun JunctionsSection() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Junctions",
-                color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+private fun DriverSection(actions: AdminActions) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        InfoBanner(
+            text = "This saves the operator's authorisation profile. The matching sign-in " +
+                "account is created in the Firebase console as <operatorId>@saptcs.local — the " +
+                "app cannot create credentials for another person.",
+            accent = PoliceBlue,
+            icon = Icons.Filled.People
+        )
+        Spacer(Modifier.height(Spacing.md))
+        RegistryForm(
+            title = "Register driver",
+            hint = "Links an operator to an ambulance unit.",
+            accent = PrimaryRed,
+            fields = listOf(
+                FormField("operatorId", "Operator ID (e.g. driver_002)"),
+                FormField("name", "Full name"),
+                FormField("ambulanceId", "Ambulance ID (e.g. AMB002)"),
+                FormField("phone", "Phone")
+            ),
+            submitLabel = "Save driver"
+        ) { values ->
+            actions.saveDriver(
+                values["operatorId"].orEmpty(),
+                values["name"].orEmpty(),
+                values["ambulanceId"].orEmpty(),
+                values["phone"].orEmpty()
             )
-            Box(
-                modifier = Modifier
-                    .background(
-                        color = AdminAmber.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { }
-            ) {
-                Text(
-                    text = "+ Add",
-                    color = AdminAmber,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
         }
+        Spacer(Modifier.height(Spacing.xl))
+    }
+}
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                Triple("JNC001", "Main Road Junction", SuccessGreen),
-                Triple("JNC002", "High Street Junction", SecondaryAmber),
-                Triple("JNC003", "Central Avenue", SuccessGreen),
-                Triple("JNC004", "North Junction", SuccessGreen)
-            ).forEach { (id, name, color) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = id,
-                                    color = TextPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(color)
-                                )
-                            }
-                            StatusBadge(
-                                text = when (color) {
-                                    SuccessGreen -> "NORMAL"
-                                    SecondaryAmber -> "PREEMPTION"
-                                    else -> "STANDBY"
-                                },
-                                backgroundColor = color.copy(alpha = 0.2f),
-                                textColor = color
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = name,
-                            color = TextMuted,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Signal",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = when (color) {
-                                            SuccessGreen -> "GREEN"
-                                            SecondaryAmber -> "RED"
-                                            else -> "NORMAL"
-                                        },
-                                        color = color,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Status",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = "Online",
-                                        color = SuccessGreen,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = ElevatedCard,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "ESP32",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = "Connected",
-                                        color = SuccessGreen,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+@Composable
+private fun PoliceSection(actions: AdminActions) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        InfoBanner(
+            text = "Junction officers see only their own junction's alerts, so the junction ID " +
+                "here decides what this account can monitor.",
+            accent = PoliceBlue,
+            icon = Icons.Filled.Shield
+        )
+        Spacer(Modifier.height(Spacing.md))
+        RegistryForm(
+            title = "Register junction officer",
+            hint = "Scopes an operator to one junction.",
+            accent = PoliceBlue,
+            fields = listOf(
+                FormField("operatorId", "Operator ID (e.g. police_002)"),
+                FormField("name", "Full name"),
+                FormField("junctionId", "Junction ID (e.g. JNC002)")
+            ),
+            submitLabel = "Save officer"
+        ) { values ->
+            actions.savePolice(
+                values["operatorId"].orEmpty(),
+                values["name"].orEmpty(),
+                values["junctionId"].orEmpty()
+            )
         }
+        Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+@Composable
+private fun HospitalSection(actions: AdminActions) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        InfoBanner(
+            text = "A hospital record and a desk operator are separate entries: the record " +
+                "holds beds and contact details, the operator holds the sign-in identity.",
+            accent = HospitalGreen,
+            icon = Icons.Filled.LocalHospital
+        )
+        Spacer(Modifier.height(Spacing.md))
+        RegistryForm(
+            title = "Register hospital",
+            hint = "Beds and contact details shown to drivers and desk staff.",
+            accent = HospitalGreen,
+            fields = listOf(
+                FormField("hospitalId", "Hospital ID (e.g. HOSP005)"),
+                FormField("name", "Hospital name"),
+                FormField("beds", "Beds available", numeric = true),
+                FormField("phone", "Contact number")
+            ),
+            submitLabel = "Save hospital"
+        ) { values ->
+            actions.saveHospital(
+                values["hospitalId"].orEmpty(),
+                values["name"].orEmpty(),
+                values["beds"].orEmpty().toIntOrNull() ?: 0,
+                values["phone"].orEmpty()
+            )
+        }
+        Spacer(Modifier.height(Spacing.md))
+        RegistryForm(
+            title = "Register receiving desk",
+            hint = "Scopes an operator to one hospital's inbound alerts.",
+            accent = HospitalGreen,
+            fields = listOf(
+                FormField("operatorId", "Operator ID (e.g. hospital_002)"),
+                FormField("name", "Desk name"),
+                FormField("hospitalId", "Hospital ID")
+            ),
+            submitLabel = "Save desk"
+        ) { values ->
+            actions.saveHospitalDesk(
+                values["operatorId"].orEmpty(),
+                values["name"].orEmpty(),
+                values["hospitalId"].orEmpty()
+            )
+        }
+        Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+@Composable
+private fun FleetSection(actions: AdminActions) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        InfoBanner(
+            text = "Registering an ambulance also authorises its stop-line RFID tag, which is " +
+                "what lets the roadside reader release the corridor.",
+            accent = SuccessGreen,
+            icon = Icons.Filled.LocalShipping
+        )
+        Spacer(Modifier.height(Spacing.md))
+        RegistryForm(
+            title = "Register ambulance",
+            hint = "Creates the unit record and its RFID tag.",
+            accent = SuccessGreen,
+            fields = listOf(
+                FormField("ambulanceId", "Ambulance ID (e.g. AMB003)"),
+                FormField("driverId", "Assigned operator ID"),
+                FormField("rfidTagId", "RFID tag ID (e.g. RFID_TAG_003)")
+            ),
+            submitLabel = "Save ambulance"
+        ) { values ->
+            actions.saveAmbulance(
+                values["ambulanceId"].orEmpty(),
+                values["driverId"].orEmpty(),
+                values["rfidTagId"].orEmpty()
+            )
+        }
+        Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+@Composable
+private fun JunctionSection(actions: AdminActions) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        InfoBanner(
+            text = "Junctions appear on the driver and officer dashboards as soon as they are " +
+                "registered and their controller starts reporting state.",
+            accent = SecondaryAmber,
+            icon = Icons.Filled.Traffic
+        )
+        Spacer(Modifier.height(Spacing.md))
+        RegistryForm(
+            title = "Register junction",
+            hint = "Adds a junction the corridor can preempt.",
+            accent = SecondaryAmber,
+            fields = listOf(
+                FormField("junctionId", "Junction ID (e.g. JNC005)"),
+                FormField("name", "Junction name"),
+                FormField("activeLane", "Active lane (e.g. north)")
+            ),
+            submitLabel = "Save junction"
+        ) { values ->
+            actions.saveJunction(
+                values["junctionId"].orEmpty(),
+                values["name"].orEmpty(),
+                values["activeLane"].orEmpty()
+            )
+        }
+        Spacer(Modifier.height(Spacing.xl))
     }
 }

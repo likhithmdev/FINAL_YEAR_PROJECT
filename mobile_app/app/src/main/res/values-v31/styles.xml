@@ -1,0 +1,8 @@
+<resources>
+    <!-- Android 12+ owns the cold-start splash; point it at the brand mark so
+         launch is branded without pulling in core-splashscreen. -->
+    <style name="AppTheme" parent="BaseAppTheme">
+        <item name="android:windowSplashScreenBackground">@color/brand_ink</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+    </style>
+</resources>

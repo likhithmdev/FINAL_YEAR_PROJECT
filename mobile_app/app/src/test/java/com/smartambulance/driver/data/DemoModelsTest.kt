@@ -11,6 +11,9 @@ import org.junit.Test
  * Pins the defaults on the shared data models. These values are read directly
  * by the dashboards (search radius shown to the driver, the emergency filter
  * defaults) so changing one silently changes what the user sees.
+ *
+ * Note there is deliberately no credential on [AppUser] to assert: sign-in is
+ * owned by Firebase Auth, and the model carries only the authorisation profile.
  */
 class DemoModelsTest {
 
@@ -19,7 +22,6 @@ class DemoModelsTest {
         val driver = AppUser(
             userId = "driver_001",
             name = "Driver One",
-            pin = "1111",
             role = "ambulance_driver",
             ambulanceId = "AMB001"
         )
@@ -33,7 +35,6 @@ class DemoModelsTest {
         val police = AppUser(
             userId = "police_001",
             name = "Traffic Police",
-            pin = "2222",
             role = "police",
             assignedJunctionId = "JNC001"
         )
@@ -47,7 +48,6 @@ class DemoModelsTest {
         val hospital = AppUser(
             userId = "hospital_001",
             name = "City Care Desk",
-            pin = "3333",
             role = "hospital",
             hospitalId = "HOSP001"
         )
@@ -58,7 +58,7 @@ class DemoModelsTest {
 
     @Test
     fun `an admin account leaves every role field unset`() {
-        val admin = AppUser(userId = "admin_001", name = "System Admin", pin = "0000", role = "admin")
+        val admin = AppUser(userId = "admin_001", name = "System Admin", role = "admin")
         assertNull(admin.ambulanceId)
         assertNull(admin.assignedJunctionId)
         assertNull(admin.hospitalId)

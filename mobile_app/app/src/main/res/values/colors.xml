@@ -1,11 +1,17 @@
 <resources>
+    <!-- Brand surfaces -->
+    <color name="brand_ink">#070B12</color>
+    <color name="brand_surface">#0F1623</color>
+    <color name="brand_surface_high">#162030</color>
+
+    <!-- Legacy aliases kept so existing references keep resolving -->
     <color name="bg">#070B14</color>
     <color name="surface">#121826</color>
     <color name="surface_alt">#1A2333</color>
     <color name="text">#F4F7FB</color>
     <color name="muted">#8B97A8</color>
-    <color name="crimson">#E11D48</color>
-    <color name="teal">#14B8A6</color>
+    <color name="crimson">#EF233C</color>
+    <color name="teal">#10B981</color>
     <color name="amber">#F59E0B</color>
     <color name="blue">#3B82F6</color>
 </resources>

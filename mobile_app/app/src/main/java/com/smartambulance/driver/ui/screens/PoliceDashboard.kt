@@ -1,27 +1,33 @@
 package com.smartambulance.driver.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.NotificationImportant
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Traffic
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,644 +37,689 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.smartambulance.driver.data.AlertRecord
+import com.smartambulance.driver.data.AmbulanceState
 import com.smartambulance.driver.data.AppUser
-import com.smartambulance.driver.ui.components.common.AppHeader
-import com.smartambulance.driver.ui.components.common.StatCard
-import com.smartambulance.driver.ui.components.common.StatusBadge
-import com.smartambulance.driver.ui.theme.*
+import com.smartambulance.driver.data.JunctionEvent
+import com.smartambulance.driver.data.JunctionState
+import com.smartambulance.driver.data.LoRaTelemetry
+import com.smartambulance.driver.data.RfidTag
+import com.smartambulance.driver.ui.components.design.ActionButton
+import com.smartambulance.driver.ui.components.design.ActionTone
+import com.smartambulance.driver.ui.components.design.DetailRow
+import com.smartambulance.driver.ui.components.design.EmptyState
+import com.smartambulance.driver.ui.components.design.InfoBanner
+import com.smartambulance.driver.ui.components.design.LiveDot
+import com.smartambulance.driver.ui.components.design.MetricTile
+import com.smartambulance.driver.ui.components.design.RoleScaffold
+import com.smartambulance.driver.ui.components.design.RowDivider
+import com.smartambulance.driver.ui.components.design.SaptcsCard
+import com.smartambulance.driver.ui.components.design.SectionHeader
+import com.smartambulance.driver.ui.components.design.StatusPill
+import com.smartambulance.driver.ui.components.design.TabBody
+import com.smartambulance.driver.ui.components.design.TileRow
+import com.smartambulance.driver.ui.theme.Border
+import com.smartambulance.driver.ui.theme.CardBackground
+import com.smartambulance.driver.ui.theme.DataText
+import com.smartambulance.driver.ui.theme.PoliceBlue
+import com.smartambulance.driver.ui.theme.PrimaryRed
+import com.smartambulance.driver.ui.theme.SecondaryAmber
+import com.smartambulance.driver.ui.theme.Spacing
+import com.smartambulance.driver.ui.theme.SuccessGreen
+import com.smartambulance.driver.ui.theme.TextDim
+import com.smartambulance.driver.ui.theme.TextMuted
+import com.smartambulance.driver.ui.theme.TextPrimary
 
-/**
- * Upgraded Police Dashboard with 3-tab layout
- */
+private const val DASH = "—"
+
+private fun signalAccent(state: String?): Color = when (state?.lowercase()) {
+    "green", "preempted", "preemption_granted" -> SuccessGreen
+    "preemption", "amber", "hold" -> SecondaryAmber
+    else -> TextDim
+}
+
+// The database holds a wider severity vocabulary than the app itself writes:
+// "Very Emergency" and "Critical" are already stored by older callers, so they
+// are mapped explicitly rather than falling through to grey — a top-tier alert
+// rendering as dim would be actively misleading on the desk.
+private fun priorityAccent(severity: String?): Color = when (severity?.uppercase()) {
+    "P1", "CRITICAL", "VERY EMERGENCY" -> PrimaryRed
+    "P2", "SERIOUS", "EMERGENCY" -> SecondaryAmber
+    "P3", "MODERATE" -> PoliceBlue
+    else -> TextDim
+}
+
+/** Multi-line console text built strictly from reported figures. */
+private fun telemetryLines(lora: LoRaTelemetry): String = listOf(
+    "Position     " + if (lora.hasFix) "%.5f, %.5f".format(lora.lat, lora.lng) else "no fix",
+    "Speed        " + (lora.speedKmph?.let { "%.0f km/h".format(it) } ?: DASH),
+    "Heading      " + (lora.headingDeg?.let { "%.0f°".format(it) } ?: DASH),
+    "To junction  " + (lora.distanceMeters?.let { "%.0f m".format(it) } ?: DASH),
+    "Bearing      " + (lora.bearingToJunctionDeg?.let { "%.0f°".format(it) } ?: DASH),
+    "RSSI         " + (lora.rssi?.let { "$it dBm" } ?: DASH)
+).joinToString("\n")
+
 @Composable
 fun PoliceDashboard(
     user: AppUser,
     junctionId: String,
-    alert: String,
-    telemetry: String,
-    ambulanceLocation: Pair<Double?, Double?> = null to null,
+    alerts: List<AlertRecord>,
+    ambulances: List<AmbulanceState>,
+    junctions: List<JunctionState>,
+    rfidTags: List<RfidTag>,
+    junctionEvents: List<JunctionEvent>,
+    lora: LoRaTelemetry,
+    demoMode: Boolean,
     onRefresh: () -> Unit,
     onLogout: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Live Map", "Junctions", "Alerts")
+    val lead = alerts.firstOrNull()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Background)
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = CardBackground,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(PoliceBlue.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = "Police",
-                        tint = PoliceBlue,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Column {
-                    Text(
-                        text = user.name,
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = junctionId,
-                        color = TextMuted,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatusBadge(
-                    text = "MONITORING",
-                    backgroundColor = PoliceBlue.copy(alpha = 0.2f),
-                    textColor = PoliceBlue
-                )
-                IconButton(onClick = onLogout) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                        contentDescription = "Exit",
-                        tint = TextPrimary
-                    )
-                }
-            }
+    RoleScaffold(
+        accent = PoliceBlue,
+        eyebrow = "Traffic police",
+        title = user.name,
+        subtitle = user.assignedJunctionId ?: "No junction assigned",
+        icon = Icons.Filled.Security,
+        status = when {
+            demoMode -> "Demo"
+            lead != null -> "Alert"
+            else -> "Monitoring"
+        },
+        statusLive = lead != null && !demoMode,
+        onLogout = onLogout,
+        demoMode = demoMode,
+        tabs = listOf("Live map", "Junctions", "Alerts"),
+        selectedTab = selectedTab,
+        onTabSelected = { selectedTab = it },
+        headerTrailing = {
+            ActionIconButton(
+                icon = Icons.Filled.Refresh,
+                description = "Refresh alerts",
+                accent = PoliceBlue,
+                onClick = onRefresh
+            )
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Tab Buttons
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            tabs.forEachIndexed { index, title ->
-                Button(
-                    onClick = { selectedTab = index },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedTab == index) PoliceBlue else ElevatedCard,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = title,
-                        fontSize = 14.sp,
-                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Tab Content
-        when (selectedTab) {
-            0 -> LiveMapTab(alert = alert, telemetry = telemetry, ambulanceLocation = ambulanceLocation)
-            1 -> JunctionsTab(onRefresh = onRefresh)
-            2 -> AlertsTab(alert = alert)
+    ) { index ->
+        when (index) {
+            0 -> LiveMapTab(
+                lead = lead,
+                ambulances = ambulances,
+                lora = lora,
+                junctionId = junctionId
+            )
+            1 -> JunctionsTab(junctions = junctions, events = junctionEvents, onRefresh = onRefresh)
+            else -> AlertsTab(
+                alerts = alerts,
+                rfidTags = rfidTags,
+                events = junctionEvents,
+                ambulances = ambulances
+            )
         }
     }
 }
 
 @Composable
-fun AmbulanceCard(
-    ambulanceId: String,
-    priority: String,
-    eta: String,
-    speed: String,
-    driver: String,
-    rfidStatus: String,
-    rssi: String,
-    hospital: String,
-    location: Pair<Double?, Double?> = null to null
+private fun ActionIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val priorityColor = when (priority) {
-        "P1" -> PrimaryRed
-        "P2" -> SecondaryAmber
-        else -> PoliceBlue
+    androidx.compose.material3.IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(accent.copy(alpha = 0.12f))
+            .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(11.dp))
+    ) {
+        Icon(icon, contentDescription = description, tint = accent, modifier = Modifier.size(18.dp))
     }
-    
-    val rfidColor = if (rfidStatus == "CONNECTED") SuccessGreen else TextDim
+}
+
+@Composable
+private fun PositionRadar(accent: Color, hasFix: Boolean, modifier: Modifier = Modifier) {
+    val sweep by rememberInfiniteTransition(label = "radar").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sweep"
+    )
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .background(
-                color = CardBackground,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(16.dp)
+            .height(188.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(CardBackground)
+            .border(1.dp, accent.copy(alpha = 0.22f), MaterialTheme.shapes.medium),
+        contentAlignment = Alignment.Center
     ) {
-        Column {
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    StatusBadge(
-                        text = priority,
-                        backgroundColor = priorityColor.copy(alpha = 0.2f),
-                        textColor = priorityColor
-                    )
-                    Text(
-                        text = ambulanceId,
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = eta,
-                        color = SecondaryAmber,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        text = speed,
-                        color = SuccessGreen,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = driver,
-                    color = TextMuted,
-                    fontSize = 12.sp
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(rfidColor)
-                    )
-                    Text(
-                        text = "RFID",
-                        color = TextMuted,
-                        fontSize = 10.sp
-                    )
-                    Text(
-                        text = rssi,
-                        color = TextMuted,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = hospital,
-                    color = TextPrimary,
-                    fontSize = 12.sp
+        Canvas(Modifier.size(150.dp)) {
+            val origin = center
+            val radius = size.minDimension / 2f
+            val stroke = 1.dp.toPx()
+
+            listOf(0.35f, 0.68f, 1f).forEach { fraction ->
+                drawCircle(
+                    color = accent.copy(alpha = 0.16f),
+                    radius = radius * fraction,
+                    center = origin,
+                    style = Stroke(stroke)
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Location",
-                    color = TextMuted,
-                    fontSize = 10.sp
-                )
-                Text(
-                    text = if (location.first != null && location.second != null) {
-                        "${String.format("%.4f", location.first)}°N, ${String.format("%.4f", location.second)}°E"
-                    } else {
-                        "Waiting for GPS..."
-                    },
-                    color = PoliceBlue,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
+            drawLine(accent.copy(alpha = 0.12f), Offset(origin.x - radius, origin.y), Offset(origin.x + radius, origin.y), stroke)
+            drawLine(accent.copy(alpha = 0.12f), Offset(origin.x, origin.y - radius), Offset(origin.x, origin.y + radius), stroke)
+
+            if (hasFix) {
+                drawCircle(
+                    color = accent.copy(alpha = 0.35f * (1f - sweep)),
+                    radius = radius * sweep,
+                    center = origin,
+                    style = Stroke(2.dp.toPx())
                 )
             }
         }
-    }
-}
 
-@Composable
-fun LiveMapTab(alert: String, telemetry: String, ambulanceLocation: Pair<Double?, Double?> = null to null) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Map placeholder
-        Box(
+        LiveDot(color = if (hasFix) accent else TextDim, size = 10)
+
+        Text(
+            text = if (hasFix) "CONTACT" else "NO FIX",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (hasFix) accent else TextDim,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .background(
-                    color = CardBackground,
-                    shape = RoundedCornerShape(12.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
+                .align(Alignment.TopStart)
+                .padding(Spacing.md)
+        )
+    }
+}
+
+@Composable
+private fun TelemetryConsole(text: String, accent: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(CardBackground)
+            .border(1.dp, Border, MaterialTheme.shapes.medium)
+            .padding(Spacing.lg)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LiveDot(color = accent, size = 6)
+            Spacer(Modifier.size(Spacing.sm))
+            Text("REPORTED BY THE INBOUND UNIT", style = MaterialTheme.typography.labelSmall, color = accent)
+        }
+        Spacer(Modifier.height(Spacing.md))
+        Text(text, style = DataText, color = TextMuted)
+    }
+}
+
+@Composable
+private fun UnitCard(unit: AmbulanceState, relation: String) {
+    val accent = if (unit.emergencyActive) priorityAccent(unit.severity) else TextDim
+
+    SaptcsCard(accent = accent, contentPadding = PaddingValues(Spacing.lg)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusPill(
+                text = unit.severity?.uppercase() ?: if (unit.emergencyActive) "Active" else "Idle",
+                color = accent
+            )
+            Spacer(Modifier.size(Spacing.md))
             Text(
-                text = "Live Map View",
+                text = unit.ambulanceId,
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = relation,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
-                fontSize = 14.sp
+                maxLines = 1
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        RowDivider()
 
-        // Active Ambulances
-        Text(
-            text = "Active Ambulances",
-            color = TextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
+        DetailRow("Driver", unit.driverId ?: DASH)
+        DetailRow("Status", unit.status ?: "Not reported")
+        DetailRow("Destination", unit.destinationHospitalId ?: DASH, mono = true)
+        DetailRow("RFID tag", unit.rfidTagId ?: DASH, mono = true)
+        DetailRow(
+            "Position",
+            if (unit.hasLocation) "%.4f, %.4f".format(unit.lat, unit.lng) else "No fix",
+            mono = true,
+            valueColor = if (unit.hasLocation) PoliceBlue else TextMuted
         )
-        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Ambulance Card 1
-            AmbulanceCard(
-                ambulanceId = "AMB001",
-                priority = "P1",
-                eta = "8 min",
-                speed = "42 km/h",
-                driver = "Driver One",
-                rfidStatus = "CONNECTED",
-                rssi = "-72 dBm",
-                hospital = "City Care Hospital",
-                location = ambulanceLocation
+@Composable
+private fun LiveMapTab(
+    lead: AlertRecord?,
+    ambulances: List<AmbulanceState>,
+    lora: LoRaTelemetry,
+    junctionId: String
+) {
+    val leadUnit = lead?.ambulanceId?.let { id -> ambulances.firstOrNull { it.ambulanceId == id } }
+    val hasFix = lora.hasFix || leadUnit?.hasLocation == true
+    val active = lead != null
+
+    TabBody {
+        if (lead == null) {
+            InfoBanner(
+                text = "No active alert for $junctionId.",
+                accent = PoliceBlue,
+                icon = Icons.Filled.NotificationImportant
             )
+        } else {
+            InfoBanner(
+                text = buildString {
+                    append(lead.message ?: "Ambulance approaching $junctionId")
+                    append("\nUnit ")
+                    append(lead.ambulanceId ?: DASH)
+                    append("  ·  severity ")
+                    append(lead.severity ?: DASH)
+                    lead.distanceMeters?.let { append("  ·  ${it.toInt()} m out") }
+                    lead.preemptionMode?.let { append("  ·  mode $it") }
+                },
+                accent = PrimaryRed,
+                emphasized = true,
+                icon = Icons.Filled.NotificationImportant
+            )
+        }
 
-            // Ambulance Card 2
-            AmbulanceCard(
-                ambulanceId = "AMB002",
-                priority = "P2",
-                eta = "12 min",
-                speed = "35 km/h",
-                driver = "Driver Two",
-                rfidStatus = "CONNECTED",
-                rssi = "-65 dBm",
-                hospital = "Metro Emergency Center",
-                location = null to null
+        SectionHeader(
+            title = "Approach overlay",
+            accent = PoliceBlue,
+            trailing = {
+                Text("Not to scale", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+            }
+        )
+
+        PositionRadar(accent = PoliceBlue, hasFix = hasFix)
+        TelemetryConsole(text = telemetryLines(lora), accent = if (hasFix) PoliceBlue else TextDim)
+
+        SectionHeader(
+            title = "Registered units",
+            accent = PoliceBlue,
+            trailing = {
+                Text(
+                    text = if (ambulances.isEmpty()) "None" else "${ambulances.size} on the register",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted
+                )
+            }
+        )
+
+        if (ambulances.isEmpty()) {
+            EmptyState(
+                icon = Icons.Filled.Security,
+                title = "No ambulances registered",
+                body = "Units appear here once an administrator adds them to the registry.",
+                accent = TextMuted
+            )
+        } else {
+            ambulances.forEach { unit ->
+                UnitCard(
+                    unit = unit,
+                    relation = when {
+                        lead?.ambulanceId == unit.ambulanceId -> "Inbound"
+                        unit.emergencyActive -> "On emergency"
+                        else -> "Available"
+                    }
+                )
+            }
+        }
+
+        if (!active) {
+            Text(
+                text = "Nothing is approaching this junction right now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted
             )
         }
     }
 }
 
 @Composable
-fun JunctionsTab(onRefresh: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Summary Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatCard(
-                label = "Cleared",
-                value = "2",
-                valueColor = SuccessGreen,
+private fun JunctionsTab(
+    junctions: List<JunctionState>,
+    events: List<JunctionEvent>,
+    onRefresh: () -> Unit
+) {
+    val green = junctions.count { signalAccent(it.signalState) == SuccessGreen }
+    val holding = junctions.count { signalAccent(it.signalState) == SecondaryAmber }
+    val silent = junctions.count { it.signalState == null }
+
+    TabBody {
+        TileRow {
+            MetricTile(
+                label = "Green",
+                value = green.toString(),
+                accent = SuccessGreen,
                 modifier = Modifier.weight(1f)
             )
-            StatCard(
-                label = "Approaching",
-                value = "1",
-                valueColor = SecondaryAmber,
+            MetricTile(
+                label = "Holding",
+                value = holding.toString(),
+                accent = SecondaryAmber,
                 modifier = Modifier.weight(1f)
             )
-            StatCard(
-                label = "Pending",
-                value = "1",
-                valueColor = TextDim,
+            MetricTile(
+                label = "Silent",
+                value = silent.toString(),
+                accent = TextDim,
                 modifier = Modifier.weight(1f)
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Junction Cards
-        Text(
-            text = "Junction Status",
-            color = TextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
+        SectionHeader(
+            title = "Junction status",
+            accent = PoliceBlue,
+            trailing = {
+                Text(
+                    text = if (junctions.isEmpty()) "None registered" else "${junctions.size} registered",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted
+                )
+            }
         )
-        Spacer(modifier = Modifier.height(8.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                Triple("JNC001", "Main Road Junction", SuccessGreen),
-                Triple("JNC002", "High Street Junction", SecondaryAmber),
-                Triple("JNC003", "Central Avenue", TextDim),
-                Triple("JNC004", "North Junction", TextDim)
-            ).forEach { (id, name, color) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+        if (junctions.isEmpty()) {
+            EmptyState(
+                icon = Icons.Filled.Traffic,
+                title = "No junctions registered",
+                body = "Add junctions from the admin console to watch their signal state here.",
+                accent = TextMuted
+            )
+        } else {
+            junctions.forEach { junction ->
+                val accent = signalAccent(junction.signalState)
+                val recent = events.filter { it.junctionId == junction.junctionId }
+
+                SaptcsCard(accent = accent, contentPadding = PaddingValues(Spacing.lg)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(accent.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            Icon(
+                                Icons.Filled.Traffic,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        Spacer(Modifier.size(Spacing.md))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = junction.junctionId,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = junction.name ?: "Unnamed junction",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        StatusPill(
+                            text = junction.signalState ?: "No report",
+                            color = accent,
+                            live = accent == SuccessGreen
+                        )
+                    }
+
+                    RowDivider()
+
+                    DetailRow("Active lane", junction.activeLane ?: DASH, mono = true)
+                    DetailRow(
+                        "Recorded events",
+                        if (recent.isEmpty()) "None" else "${recent.size}",
+                        valueColor = if (recent.isEmpty()) TextMuted else TextPrimary
+                    )
+                    recent.firstOrNull()?.let { latest ->
+                        DetailRow(
+                            "Latest",
+                            "${latest.eventType ?: "event"} · ${latest.ambulanceId ?: DASH}",
+                            maxLines = 2
+                        )
+                    }
+                }
+            }
+        }
+
+        ActionButton(
+            label = "Refresh live alerts",
+            onClick = onRefresh,
+            tone = ActionTone.Tinted,
+            accent = PoliceBlue,
+            leadingIcon = Icons.Filled.Refresh
+        )
+    }
+}
+
+@Composable
+private fun AlertsTab(
+    alerts: List<AlertRecord>,
+    rfidTags: List<RfidTag>,
+    events: List<JunctionEvent>,
+    ambulances: List<AmbulanceState>
+) {
+    // The corridor log the desk cares about: grants, stop-line clears and hand-backs.
+    // Plain `entry`/`exit` presence events are deliberately excluded.
+    val preemptions = events
+        .filter { it.openedCorridor || it.clearedAtStopLine || it.restored || it.preemptionMode != null }
+        .sortedByDescending { it.timestamp ?: 0L }
+
+    TabBody {
+        if (alerts.isEmpty()) {
+            InfoBanner(
+                text = "No priority alerts recorded for this junction.",
+                accent = PoliceBlue,
+                icon = Icons.Filled.NotificationImportant
+            )
+        } else {
+            SaptcsCard(
+                accent = PrimaryRed,
+                selected = true,
+                contentPadding = PaddingValues(Spacing.lg)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(PrimaryRed.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.NotificationImportant,
+                            contentDescription = null,
+                            tint = PrimaryRed,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                    Spacer(Modifier.size(Spacing.md))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "${alerts.size} priority alert${if (alerts.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = alerts.first().message ?: "Most recent alert",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                RowDivider()
+
+                alerts.take(5).forEachIndexed { position, alert ->
+                    if (position > 0) RowDivider()
+                    DetailRow(
+                        label = alert.ambulanceId ?: alert.key,
+                        value = buildString {
+                            append(alert.severity ?: DASH)
+                            alert.distanceMeters?.let { append(" · ${it.toInt()} m") }
+                            append(" · ")
+                            append(alert.status ?: alert.preemptionMode ?: "logged")
+                        },
+                        valueColor = priorityAccent(alert.severity)
+                    )
+                }
+            }
+        }
+
+        SectionHeader(
+            title = "RFID clearance log",
+            accent = SuccessGreen,
+            trailing = {
+                Text(
+                    text = if (rfidTags.isEmpty()) "No tags" else "${rfidTags.size} tags",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted
+                )
+            }
+        )
+
+        if (rfidTags.isEmpty()) {
+            EmptyState(
+                icon = Icons.Filled.Sensors,
+                title = "No RFID tags registered",
+                body = "Tag records appear once ambulances and their stop-line tags are registered.",
+                accent = SuccessGreen
+            )
+        } else {
+            SaptcsCard(accent = SuccessGreen, contentPadding = PaddingValues(Spacing.lg)) {
+                rfidTags.forEachIndexed { position, tag ->
+                    if (position > 0) RowDivider()
+                    val registered = ambulances.any { it.rfidTagId == tag.rfidTagId }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Sensors,
+                            contentDescription = null,
+                            tint = if (tag.authorized && tag.active) SuccessGreen else TextDim,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.size(Spacing.md))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = tag.rfidTagId,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = tag.ambulanceId ?: "Unassigned",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted
+                            )
+                        }
+                        StatusPill(
+                            text = when {
+                                !tag.authorized -> "Unauthorized"
+                                !tag.active -> "Inactive"
+                                registered -> "Linked"
+                                else -> "Unlinked"
+                            },
+                            color = when {
+                                !tag.authorized || !tag.active -> TextDim
+                                registered -> SuccessGreen
+                                else -> SecondaryAmber
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        SectionHeader(
+            title = "Preemption events",
+            accent = SecondaryAmber,
+            trailing = {
+                Text(
+                    text = if (events.isEmpty()) "None recorded" else "${events.size} total",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted
+                )
+            }
+        )
+
+        if (events.isEmpty()) {
+            EmptyState(
+                icon = Icons.Filled.WifiTethering,
+                title = "No junction events yet",
+                body = "Granted preemptions and stop-line clears are logged by the roadside " +
+                    "controller as they happen.",
+                accent = TextMuted
+            )
+        } else {
+            SaptcsCard(accent = SecondaryAmber, contentPadding = PaddingValues(Spacing.lg)) {
+                if (preemptions.isEmpty()) {
+                    Text(
+                        text = "No preemption events among the ${events.size} recorded events.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
+                } else {
+                    preemptions.take(6).forEachIndexed { position, event ->
+                        if (position > 0) RowDivider()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.WifiTethering,
+                                contentDescription = null,
+                                tint = SecondaryAmber,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.size(Spacing.md))
+                            Column(Modifier.weight(1f)) {
                                 Text(
-                                    text = id,
-                                    color = TextPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.Monospace
+                                    text = event.junctionId ?: event.eventId,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = TextPrimary
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(color)
+                                Text(
+                                    text = "${event.ambulanceId ?: DASH} · ${event.eventType ?: "event"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            StatusBadge(
-                                text = when (color) {
-                                    SuccessGreen -> "NORMAL"
-                                    SecondaryAmber -> "PREEMPTION"
-                                    else -> "STANDBY"
+                            StatusPill(
+                                text = event.preemptionMode ?: when {
+                                    event.openedCorridor -> "granted"
+                                    event.clearedAtStopLine -> "cleared"
+                                    else -> "logged"
                                 },
-                                backgroundColor = color.copy(alpha = 0.2f),
-                                textColor = color
+                                color = when {
+                                    event.clearedAtStopLine -> SuccessGreen
+                                    event.restored -> TextDim
+                                    else -> SecondaryAmber
+                                }
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = name,
-                            color = TextMuted,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Signal",
-                                color = TextMuted,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                text = when (color) {
-                                    SuccessGreen -> "GREEN"
-                                    SecondaryAmber -> "RED"
-                                    else -> "NORMAL"
-                                },
-                                color = color,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "LoRa",
-                                color = TextMuted,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                text = "-72 dBm",
-                                color = SuccessGreen,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Approach",
-                                color = TextMuted,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                text = "NORTHBOUND",
-                                color = TextPrimary,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AlertsTab(alert: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Priority Alert Banner
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = PrimaryRed.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(16.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(PrimaryRed)
-                )
-                Text(
-                    text = "Priority Alert Active",
-                    color = PrimaryRed,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // RFID Clearance Log
-        Text(
-            text = "RFID Clearance Log",
-            color = TextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                "RFID_TAG_001" to "AMB001",
-                "RFID_TAG_002" to "AMB002"
-            ).forEach { (tag, ambulance) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            Text(
-                                text = tag,
-                                color = TextPrimary,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                text = ambulance,
-                                color = TextMuted,
-                                fontSize = 10.sp
-                            )
-                        }
-                        StatusBadge(
-                            text = "CLEARED",
-                            backgroundColor = SuccessGreen.copy(alpha = 0.2f),
-                            textColor = SuccessGreen
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Preemption Events
-        Text(
-            text = "Preemption Events",
-            color = TextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                "JNC001" to "AMB001",
-                "JNC002" to "AMB002"
-            ).forEach { (junction, ambulance) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = CardBackground,
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            Text(
-                                text = junction,
-                                color = TextPrimary,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                text = ambulance,
-                                color = TextMuted,
-                                fontSize = 10.sp
-                            )
-                        }
-                        StatusBadge(
-                            text = "PREEMPTED",
-                            backgroundColor = SecondaryAmber.copy(alpha = 0.2f),
-                            textColor = SecondaryAmber
-                        )
                     }
                 }
             }

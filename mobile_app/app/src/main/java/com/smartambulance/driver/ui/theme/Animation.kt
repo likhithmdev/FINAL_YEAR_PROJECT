@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -60,55 +59,3 @@ fun PulseAnimation(
     )
 }
 
-/**
- * Simple blink animation for alerts
- * Creates a fading circle
- */
-@Composable
-fun BlinkAnimation(
-    modifier: Modifier = Modifier,
-    color: Color = PrimaryRed,
-    size: Int = 8
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "blink")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(500, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
-    Box(
-        modifier = modifier
-            .size(size.dp)
-            .drawBehind {
-                drawCircle(
-                    color = color,
-                    alpha = alpha,
-                    radius = size.dp.toPx() / 2,
-                    center = center
-                )
-            }
-    )
-}
-
-/**
- * Live indicator dot with pulse animation
- */
-@Composable
-fun LiveIndicator(
-    modifier: Modifier = Modifier,
-    color: Color = PrimaryRed
-) {
-    Box(modifier = modifier) {
-        PulseAnimation(color = color)
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(color)
-        )
-    }
-}
