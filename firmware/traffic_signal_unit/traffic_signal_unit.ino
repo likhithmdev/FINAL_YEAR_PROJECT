@@ -10,13 +10,13 @@
   - PubSubClient by Nick O'Leary
 
   Serial (115200):
-    SIM {"ambulanceId":"AMB001","tripId":"TRIP001","lat":12.9750,"lng":77.5946,"speedKmph":42,"headingDeg":185,"gpsFix":true}
+    SIM {"ambulanceId":"AMB001","tripId":"TRIP001","lat":12.9647,"lng":77.5920,"speedKmph":40,"headingDeg":180,"gpsFix":true}
     SIMRSSI -60
     RFID RFID_TAG_001
     SET_JUNCTION JNC002
     SET_NAME Hospital Cross
-    SET_LAT 12.9750
-    SET_LNG 77.5946
+    SET_LAT 12.9620
+    SET_LNG 77.5920
     SET_LANE eastbound
     ADD_AMB AMB002
     SET_TAG RFID_TAG_002
@@ -40,8 +40,14 @@ String JUNCTION_NAME = "Main Road Junction";
 String AUTHORIZED_AMBULANCE_ID = "AMB001";
 String AUTHORIZED_RFID_TAG = "RFID_TAG_001";
 
-double JUNCTION_LAT = 12.9716;
-double JUNCTION_LNG = 77.5946;
+// Position of junction JNC001. These are the database's own values for JNC001
+// and they match the LoRa receiver's JunctionConfig, so the roadside unit and
+// the cloud publish agree on where the junction is. The previous default,
+// 12.9716, 77.5946, sat 1104 m from this point, which meant a packet close
+// enough to light up the dashboard could never fire this unit's corridor and
+// vice versa. Change them at runtime with SET_LAT / SET_LNG if needed.
+double JUNCTION_LAT = 12.9620;
+double JUNCTION_LNG = 77.5920;
 String APPROACH_LANE = "northbound";
 
 // Support for multiple authorized ambulances

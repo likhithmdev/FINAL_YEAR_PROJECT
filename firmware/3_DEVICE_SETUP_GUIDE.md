@@ -5,8 +5,13 @@
 Your system now uses **3 separate devices**:
 
 1. **Ambulance ESP32** (Transmitter) - LoRa + GPS + LED + Buzzer + Button
-2. **ESP32 LoRa Receiver** - Receives LoRa, calculates GPS distance/bearing, sends UART commands
+2. **ESP32 LoRa Receiver** - Receives LoRa, calculates GPS distance/bearing, sends
+   UART commands, and mirrors every decision to Firebase so the dashboard and
+   the driver app follow the real hardware
 3. **Arduino Traffic Controller** - Controls traffic signals + RFID, receives UART commands
+The receiver is the only device that talks to the cloud. The ambulance transmits
+over LoRa only, and the traffic controller stays on its UART link, so neither
+needs network credentials.
 
 ---
 
@@ -92,6 +97,32 @@ Your system now uses **3 separate devices**:
 ### UART Commands Sent to Arduino
 - `AMBULANCE_APPROACH,<signal_id>` - Ambulance approaching, preempt specified signal (0-3)
 - `AMBULANCE_OUT_OF_RANGE` - Ambulance out of range, restore normal traffic
+
+The Arduino prints its own state on this same link, so the receiver also reads
+it back. That is how an RFID stop-line release reaches the software: the release
+happens on the Arduino, and the receiver turns it into a `rfid_clearance` event.
+
+### Firebase Integration (what the software reads)
+
+This unit is the bridge between the hardware and the software. It holds the
+junction position and thresholds, triggers the local preemption, and mirrors
+every decision into the Realtime Database so the dashboard and the driver app
+show what the hardware is actually doing.
+
+| Node | Write | Purpose |
+| --- | --- | --- |
+| `junctions/<junctionId>` | PATCH | publishes this unit's position and thresholds at boot, then its `signalState`, `preemptionMode`, `activeLane`, `activeAmbulanceId`, `distanceMeters`, `rssi`, `lastDwellTime` |
+| `junctionEvents` | POST | one row per decision - `gps_preempt_started`, `rssi_preempt_started`, `rfid_clearance`, `normal_restored`, `timeout_restore`, `approach_tracking_expired` |
+| `loraTelemetry/<junctionId>/<ambulanceId>` | PATCH | live position and approach telemetry |
+| `ambulances/<ambulanceId>/lastLocation` | PATCH | position for the driver app's map |
+
+Those four paths are the only ones the firmware writes, and the only ones open
+without credentials in `database.rules.json`; everything else requires an
+authenticated operator. Preemption still runs when WiFi is down - the cloud
+layer is a mirror, not a dependency.
+
+`updatedAt` and `timestamp` are epoch milliseconds, never `millis()`. The apps
+derive data age from them, and a `millis()` value reads as 1970.
 
 ---
 
@@ -209,25 +240,54 @@ The Arduino receives these commands via Serial (9600 baud):
 Edit `firmware/lora_receiver_esp32/lora_receiver_esp32.ino`:
 
 ```cpp
-// WiFi Configuration
+// WiFi - needed for the Firebase mirror only
 const char* WIFI_SSID = "your_wifi_ssid";
 const char* WIFI_PASSWORD = "your_wifi_password";
 
-// Firebase Configuration
+// Firebase project host. No database secret: the four firmware paths are
+// written without credentials, by design (see database.rules.json).
 const char* FIREBASE_HOST = "smart-ambulance-36f9d-default-rtdb.firebaseio.com";
-const char* FIREBASE_AUTH = "your_firebase_database_secret";
 
 // Junction Configuration
-const float JUNCTION_LAT = 13.013123;  // Your junction latitude
-const float JUNCTION_LON = 77.629112;  // Your junction longitude
-const float TRIGGER_DISTANCE = 500.0;  // Trigger distance in meters
+struct JunctionConfig {
+  String junctionId = "JNC001";
+  String name = "Main Road Junction";      // display only, not published
+  String approachLane = "Northbound";      // display only, not published
+  double lat = 12.962;                     // MUST match the junction in the database
+  double lng = 77.592;
+  float approachThresholdMeters = 500.0;    // trigger distance in meters
+  unsigned long gpsPacketTimeoutMs = 5000;
+  unsigned long clearanceTimeoutMs = 90000;
+  int rssiFallbackThresholdDbm = -65;
+  int rssiConsecutivePacketCount = 3;
+};
 ```
 
-**To get Firebase credentials:**
-1. Go to Firebase Console → Project Settings
-2. Copy your Firebase project host
-3. Go to Service Accounts → Database Secrets
-4. Copy your database secret
+At boot the unit publishes its position and thresholds to
+`junctions/<junctionId>`, so the database can never describe a different
+junction from the one the hardware triggers on. Only the position and the
+thresholds are written - `name`, `lane` and `readers` stay the dashboard's.
+
+**`lat`/`lng` must match the junction the software displays.** If they are wrong
+the computed distance is wrong, so preemption either never fires or fires at the
+wrong place. You can fix it on the bench without reflashing - the receiver takes
+these commands on its USB serial (115200 baud):
+
+| Command | Effect |
+| --- | --- |
+| `STATUS` | print junction, threshold, WiFi/NTP state and current signal state |
+| `SET_LAT <deg>` / `SET_LNG <deg>` | move the junction and republish it |
+| `SET_THRESHOLD <m>` | change the trigger distance and republish it |
+| `SET_JUNCTION <id>` | point the unit at another junction and republish |
+| `RELOAD` | republish the junction config now |
+
+**Do not put a database secret in the firmware.** Earlier revisions of this
+guide told you to fetch one from Service Accounts → Database Secrets. That
+secret has been removed from the code and the database no longer accepts it.
+
+**To find the Firebase host:** Firebase Console → Project Settings → Your apps →
+`databaseURL`. For this project it is
+`smart-ambulance-36f9d-default-rtdb.firebaseio.com`.
 
 ### Arduino Traffic Controller Settings
 Edit `firmware/arduino_traffic_controller/arduino_traffic_controller.ino`:
@@ -275,14 +335,19 @@ String TRIP_ID = "TRIP001";      // Your trip ID
 - Install required libraries:
   - LoRa by Sandeep Mistry
   - ArduinoJson by Benoit Blanchon
-- Configure WiFi credentials in the code
-- Configure Firebase credentials in the code
+- Set the WiFi credentials in the code
+- Set `junction.lat` / `junction.lng` to the junction you are standing at
 - Open Serial Monitor (115200 baud)
-- Should see "WiFi connected!" with IP address
-- Should see "LoRa Receiver Active"
-- When ambulance transmits, should see distance/bearing calculations
+- Should see "WiFi connected!" with IP address, then
+  "NTP time synced - cloud timestamps are epoch milliseconds."
+- Should see "Junction config published: JNC001 at ..." - that position should
+  match what the dashboard's junction panel shows
+- Should see "LoRa Receiver Active. Listening for ambulance data..."
+- Send `STATUS` to print the unit's view of the junction
+- When the ambulance transmits, should see distance, bearing and RSSI per packet
 - Should see UART commands being sent to Arduino
-- Should see "Firebase response: 200" for successful uploads
+- On a preemption, should see `[EVENT] ... type=gps_preempt_started`, and that row
+  should appear in the dashboard's event feed
 
 ### 3. Test Arduino Traffic Controller
 - Upload `arduino_traffic_controller.ino`
@@ -293,11 +358,44 @@ String TRIP_ID = "TRIP001";      // Your trip ID
 - Test UART commands (manually send via Serial Monitor)
 
 ### 4. Integration Test
-- Connect all 3 devices
+- Connect all 3 devices, and open the dashboard and the driver app
 - Start ambulance emergency mode
 - Watch ESP32 receiver detect ambulance
 - Watch Arduino preempt traffic signal
-- Test RFID exit to restore normal traffic
+- Watch the dashboard junction panel go to `priority_active` and the event feed
+  show the preemption row
+- Test RFID exit to restore normal traffic, and confirm the corridor log shows
+  the stop-line release (`rfid_clearance`)
+- Confirm the driver app's map shows the ambulance from `lastLocation`
+
+### 5. Bench demo (ambulance + LoRa receiver + traffic signal unit)
+
+If you are presenting with one ambulance sender, one LoRa receiver and one
+`traffic_signal_unit.ino` board (the Arduino controller replaced by the signal
+unit, which drives the lights from LoRa directly), note that the two receivers
+are independent: the LoRa receiver feeds the dashboard, the traffic signal unit
+drives the physical light. Both listen on 433 MHz, so one transmitter drives both.
+
+The traffic signal unit ignores a packet unless the ambulance is inside 500 m of
+its own junction **and** within 35 degrees of the bearing to that junction, so the
+heading in your SIM is not optional. All three boards now default to the same
+junction, 12.9620, 77.5920 (JNC001 in the database):
+
+| Step | Where | Command / check |
+| --- | --- | --- |
+| 1 | LoRa receiver | Confirm Wi-Fi connected and `NTP time synced`. Send `STATUS` to print the junction it published |
+| 2 | Traffic signal unit | Optional: send `SET_LAT 12.9620` and `SET_LNG 77.5920` if you moved it |
+| 3 | Ambulance ESP32 | `SIM 12.9647,77.5920,180,40` - this sets a fix 300 m north of the junction and starts the emergency |
+| 4 | Ambulance ESP32 | Expect `[TX] ...` every broadcast interval |
+| 5 | LoRa receiver | Expect `AMBULANCE WITHIN TRIGGER ZONE!`, then `[EVENT] type=gps_preempt_started` |
+| 6 | Traffic signal unit | Expect the ambulance direction to go green and the cross direction red |
+| 7 | Dashboard | Junction panel goes to `priority_active`, event feed shows the preemption, map shows the ambulance |
+| 8 | Either | Send `EMERGENCY OFF` on the ambulance, or stop transmitting, and confirm the corridor restores after the packet timeout |
+
+The heading matters: 12.9647, 77.5920 sits north of the junction, so the bearing to
+the junction is 180 degrees. A heading of 0 passes the LoRa receiver (it triggers on
+distance alone) but the traffic signal unit rejects it as travelling away, and the
+light will not change.
 
 ---
 
@@ -334,7 +432,10 @@ String TRIP_ID = "TRIP001";      // Your trip ID
 ## Security Notes
 
 1. **RFID Security**: Add authorized RFID tags to `allowedUIDs` array
-2. **Ambulance Authorization**: ESP32 receiver should verify ambulance ID in production
+2. **Ambulance Authorization**: the receiver currently acts on any well-formed
+   LoRa packet, on the assumption that the ambulance unit is the only
+   transmitter on the channel. Add an ID allowlist to the receiver before
+   deploying it anywhere others can transmit on 433 MHz
 3. **Physical Security**: Enclose hardware in tamper-proof enclosures
 4. **Power Backup**: Consider battery backup for traffic controller
 
@@ -342,7 +443,8 @@ String TRIP_ID = "TRIP001";      // Your trip ID
 
 ## Future Enhancements
 
-1. Add WiFi to ESP32 receiver for cloud integration (MQTT/Firebase)
+1. ~~Add WiFi to ESP32 receiver for cloud integration (MQTT/Firebase)~~ - done:
+   the receiver mirrors every decision to Firebase
 2. Add multiple ambulance support
 3. Add traffic flow sensors
 4. Add emergency vehicle detection cameras
