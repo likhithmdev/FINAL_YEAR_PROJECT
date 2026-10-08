@@ -124,6 +124,14 @@ layer is a mirror, not a dependency.
 `updatedAt` and `timestamp` are epoch milliseconds, never `millis()`. The apps
 derive data age from them, and a `millis()` value reads as 1970.
 
+The receiver does not compute those values from its own clock. It writes them as
+Firebase's `{".sv":"timestamp"}` directive and lets the database stamp them with
+its server clock. What lands in the database is an ordinary epoch-millisecond
+number, identical in shape to before, but it is authoritative and it stays
+correct when NTP is unreachable - which is common, because campus and phone
+hotspot networks routinely block UDP 123 while HTTPS works fine. NTP is still
+attempted, and `STATUS` reports it, but nothing depends on it.
+
 ---
 
 ## Device 3: Arduino Traffic Controller
@@ -310,6 +318,80 @@ String AMBULANCE_ID = "AMB001";  // Your ambulance ID
 String TRIP_ID = "TRIP001";      // Your trip ID
 ```
 
+#### Bench demo start position
+
+The same file carries this switch, near the simulated-fix variables:
+
+```cpp
+#define BENCH_DEMO_START
+```
+
+With it defined, the board powers up at **12.9647, 77.5920, heading 180, 40 km/h** -
+which measures 300 m north of JNC001, so the packet is inside the receivers'
+500 m trigger and the heading matches the bearing to the junction exactly. A
+board on a battery therefore opens the corridor with nobody typing a command.
+
+Comment the line out to restore the realistic road default (12.9750, 77.5946,
+heading 185), which sits 1473 m from JNC001 and triggers nothing. The board also
+starts transmitting immediately (`START_IN_EMERGENCY`), so `EMERGENCY ON` is not
+needed either; use the `SIM` command only to move it somewhere else at runtime.
+
+---
+
+## Flashing the Boards
+
+Firmware is flashed with `arduino-cli`, one board at a time. A helper script
+wraps the whole thing:
+
+```bash
+bash scripts/flash-firmware.sh list                  # find the board's COM port
+bash scripts/flash-firmware.sh compile all           # pre-flight, no board needed
+bash scripts/flash-firmware.sh flash receiver auto   # wait for a new port, then flash
+bash scripts/flash-firmware.sh monitor receiver COM9 # watch it boot
+```
+
+Board aliases: `receiver`, `signal`, `ambulance`, `controller`.
+
+### Why one board at a time
+
+Cheap ESP32 boards usually carry a CH340 or CP2102 USB bridge, and clones often
+ship with no unique serial number - so two identical boards appear as two
+indistinguishable "USB-SERIAL CH340" ports. A typical Windows machine also has
+several Bluetooth virtual serial ports that always exist. Connecting one board
+at a time removes the ambiguity: the port that *appears* is the board you just
+plugged in.
+
+Passing `auto` instead of a COM number uses that fact directly: it snapshots the
+ports, waits for one that was not there before, and flashes to it. That is the
+simplest flow on a machine with Bluetooth ports. Set `SAPTCS_PORT_WAIT` to change
+the wait (default 120s). If a board is already plugged in, `auto` will not see a
+new port - pass the COM number explicitly instead.
+
+The order that works best: **receiver -> signal -> ambulance**. Each board has a
+distinct thing to check right after flashing it, while it is still tethered.
+
+### Manual equivalent
+
+```bash
+arduino-cli compile -b esp32:esp32:esp32 firmware/lora_receiver_esp32
+arduino-cli upload  -b esp32:esp32:esp32 -p COM9 firmware/lora_receiver_esp32
+```
+
+The Uno controller uses `-b arduino:avr:uno`.
+
+### If an upload fails
+
+- **Port busy** - close any open Serial Monitor first; the upload needs
+exclusive access to the port.
+- **No port appears** - install the USB-serial driver (CP210x for Silicon Labs,
+CH340 for WCH). Windows usually installs it automatically the first time the
+board is connected.
+- **"Failed to connect ... Wrong boot mode"** - hold the **BOOT** button while
+the upload starts, and release it when the progress bar appears.
+- **Board hangs right after flashing** - on a native-USB ESP32 (C3/S3/S2) the
+`while (!Serial) {}` at the top of `setup()` waits for a host to open the port.
+Keep the board tethered to a computer, or delete that line.
+
 ---
 
 ## Testing Procedure
@@ -338,8 +420,9 @@ String TRIP_ID = "TRIP001";      // Your trip ID
 - Set the WiFi credentials in the code
 - Set `junction.lat` / `junction.lng` to the junction you are standing at
 - Open Serial Monitor (115200 baud)
-- Should see "WiFi connected!" with IP address, then
-  "NTP time synced - cloud timestamps are epoch milliseconds."
+- Should see "WiFi connected!" with IP address
+- NTP may or may not sync (`STATUS` reports it); the cloud timestamps come from
+  Firebase's server clock, so a missing NTP sync does not affect the data
 - Should see "Junction config published: JNC001 at ..." - that position should
   match what the dashboard's junction panel shows
 - Should see "LoRa Receiver Active. Listening for ambulance data..."
@@ -378,14 +461,15 @@ drives the physical light. Both listen on 433 MHz, so one transmitter drives bot
 
 The traffic signal unit ignores a packet unless the ambulance is inside 500 m of
 its own junction **and** within 35 degrees of the bearing to that junction, so the
-heading in your SIM is not optional. All three boards now default to the same
-junction, 12.9620, 77.5920 (JNC001 in the database):
+heading the ambulance transmits is not optional. All three boards now default to
+the same junction, 12.9620, 77.5920 (JNC001 in the database), and the ambulance
+already powers up inside the trigger pointing at it:
 
 | Step | Where | Command / check |
 | --- | --- | --- |
-| 1 | LoRa receiver | Confirm Wi-Fi connected and `NTP time synced`. Send `STATUS` to print the junction it published |
+| 1 | LoRa receiver | Send `STATUS`: expect `wifi: connected` and `config published to Firebase: yes`. (`time synced: no` is harmless - the timestamps come from Firebase's clock) |
 | 2 | Traffic signal unit | Optional: send `SET_LAT 12.9620` and `SET_LNG 77.5920` if you moved it |
-| 3 | Ambulance ESP32 | `SIM 12.9647,77.5920,180,40` - this sets a fix 300 m north of the junction and starts the emergency |
+| 3 | Ambulance ESP32 | Nothing needed - `BENCH_DEMO_START` already powers it up at 12.9647, 77.5920, heading 180, 300 m north of the junction, and it transmits from power-on. Send `SIM <lat>,<lng>,<heading>,<speed>` only to move it elsewhere |
 | 4 | Ambulance ESP32 | Expect `[TX] ...` every broadcast interval |
 | 5 | LoRa receiver | Expect `AMBULANCE WITHIN TRIGGER ZONE!`, then `[EVENT] type=gps_preempt_started` |
 | 6 | Traffic signal unit | Expect the ambulance direction to go green and the cross direction red |
@@ -396,6 +480,10 @@ The heading matters: 12.9647, 77.5920 sits north of the junction, so the bearing
 the junction is 180 degrees. A heading of 0 passes the LoRa receiver (it triggers on
 distance alone) but the traffic signal unit rejects it as travelling away, and the
 light will not change.
+
+If you send your own `SIM` instead of relying on the default, place it within
+500 m of 12.9620, 77.5920 and point the heading at that point. Both receivers now
+default to the same junction, so a single position satisfies both of them.
 
 ---
 
