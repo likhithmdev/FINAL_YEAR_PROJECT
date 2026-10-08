@@ -46,25 +46,28 @@ export default function LoginGate() {
           session. Authorised control-room staff only.
         </p>
 
+        {/* type="text", not "email": operators type a bare ID such as
+            admin_001, which the browser's email validation would reject. */}
         <label className="field">
-          <span>Email</span>
+          <span>Operator ID or email</span>
           <input
-            type="email"
+            type="text"
             className="input"
             autoComplete="username"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="operator@example.com"
+            placeholder="admin_001"
             required
           />
         </label>
 
         <label className="field">
-          <span>Password</span>
+          <span>4-digit PIN</span>
           <input
             type="password"
             className="input"
             autoComplete="current-password"
+            inputMode="numeric"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required

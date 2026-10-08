@@ -9,6 +9,13 @@ import {
   signOut,
 } from "firebase/auth";
 
+import {
+  OPERATOR_EMAIL_DOMAIN,
+  PIN_PREFIX,
+  emailForOperator,
+  passwordForOperator,
+} from "../lib/operatorIdentity";
+
 export const firebaseConfig = {
   apiKey: "AIzaSyCqg4gsohXZZB3wBEeAKR1wND-vYTg9H70",
   authDomain: "smart-ambulance-36f9d.firebaseapp.com",
@@ -85,9 +92,18 @@ export function describeAuthError(error) {
   }
 }
 
-export async function signInOperator(email, password) {
+// The ID/PIN mapping lives in lib/operatorIdentity.js so it can be unit-tested
+// without pulling in the Firebase SDK. Re-exported here so importers of this
+// module keep working unchanged.
+export { OPERATOR_EMAIL_DOMAIN, PIN_PREFIX, emailForOperator, passwordForOperator };
+
+export async function signInOperator(operatorOrEmail, secret) {
   await ensurePersistence();
-  return signInWithEmailAndPassword(auth, email, password);
+  return signInWithEmailAndPassword(
+    auth,
+    emailForOperator(operatorOrEmail),
+    passwordForOperator(secret),
+  );
 }
 
 export function signOutOperator() {

@@ -359,6 +359,17 @@ describe("event labels", () => {
     expect(eventTone("gps_preempt_started")).toBe("danger");
   });
 
+  // These reach the dashboard from the roadside sketch, so an unregistered name
+  // would surface as a titleCase fallback in the live event feed.
+  it("covers the hand-back events the roadside firmware emits", () => {
+    expect(eventLabel("normal_restored")).toBe("Traffic restored");
+    expect(eventTone("normal_restored")).toBe("success");
+    expect(eventLabel("approach_tracking_expired")).toBe("Approach tracking expired");
+    expect(eventTone("approach_tracking_expired")).toBe("neutral");
+    expect(eventLabel("invalid_rfid_tag")).toBe("Unrecognised RFID tag");
+    expect(eventTone("invalid_rfid_tag")).toBe("amber");
+  });
+
   it("still understands the legacy entry/exit names", () => {
     expect(eventLabel("entry")).toBe("Corridor entry");
     expect(eventLabel("exit")).toBe("Corridor exit");

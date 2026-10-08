@@ -12,6 +12,13 @@ export const EVENT_TYPES = {
   rssi_preempt_started: { label: "RSSI fallback preemption", tone: "amber" },
   rfid_clearance: { label: "RFID clearance", tone: "success" },
   timeout_restore: { label: "Safety timeout", tone: "amber" },
+  // Emitted by the roadside firmware for the hand-backs that do not come from a
+  // stop-line read, and for approach tracking that lapses before it ever became
+  // a preemption. Leaving these unnamed would push them through the titleCase
+  // fallback below, so "normal_restored" would read as "Normal Restored".
+  normal_restored: { label: "Traffic restored", tone: "success" },
+  approach_tracking_expired: { label: "Approach tracking expired", tone: "neutral" },
+  invalid_rfid_tag: { label: "Unrecognised RFID tag", tone: "amber" },
   manual_reset: { label: "Manual reset", tone: "info" },
   // Legacy event names still present in historical Realtime Database records.
   entry: { label: "Corridor entry", tone: "danger" },

@@ -38,11 +38,14 @@ export const DEMO_HOSPITALS = {
   },
 };
 
+// No `pin` field: credentials live only in Firebase Authentication, and the
+// plaintext PINs were removed from /users. Seeding one here would write the
+// secret back into a node every authenticated operator can read.
 const DEMO_USERS = {
-  driver_001: { userId: "driver_001", name: "Driver One", pin: "1111", role: "ambulance_driver", ambulanceId: "AMB001", active: true },
-  police_001: { userId: "police_001", name: "Traffic Police", pin: "2222", role: "police", assignedJunctionId: "JNC001", active: true },
-  hospital_001: { userId: "hospital_001", name: "City Care Desk", pin: "3333", role: "hospital", hospitalId: "HOSP001", active: true },
-  admin_001: { userId: "admin_001", name: "System Admin", pin: "0000", role: "admin", active: true },
+  driver_001: { userId: "driver_001", name: "Driver One", role: "ambulance_driver", ambulanceId: "AMB001", active: true },
+  police_001: { userId: "police_001", name: "Traffic Police", role: "police", assignedJunctionId: "JNC001", active: true },
+  hospital_001: { userId: "hospital_001", name: "City Care Desk", role: "hospital", hospitalId: "HOSP001", active: true },
+  admin_001: { userId: "admin_001", name: "System Admin", role: "admin", active: true },
 };
 
 const DEMO_JUNCTIONS = {
