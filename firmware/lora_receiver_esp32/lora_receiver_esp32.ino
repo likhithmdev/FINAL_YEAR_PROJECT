@@ -33,7 +33,11 @@
   ambulances/<amb>/lastLocation  PATCH  position for the driver app's map
 
   `updatedAt` and `timestamp` are epoch milliseconds, NOT millis(). The apps
-  derive data age from those fields, and a millis() value reads as 1970.
+  derive data age from those fields, and a millis() value reads as 1970. Every
+  one of them is therefore written as Firebase's {".sv":"timestamp"} directive
+  and stamped with the database's own server clock, which stays correct even
+  when NTP is unreachable - common on campus and hotspot networks, where UDP 123
+  is blocked while HTTPS is fine.
 
   Junction position and thresholds live in this unit and are PUBLISHED to
   junctions/<junctionId> at boot, so the database can never describe a
@@ -256,12 +260,14 @@ bool preemptionActive() {
   return state == GPS_PREEMPT_ACTIVE || state == RSSI_PREEMPT_ACTIVE;
 }
 
-// Epoch milliseconds. Falls back to millis() only before NTP has landed, so the
-// apps always get a value they can subtract from their own clock.
-int64_t cloudTimestamp() {
-  time_t now = time(nullptr);
-  if (now > 1700000000) return (int64_t)now * 1000;
-  return (int64_t)millis();
+// Stamp a field with Firebase's own clock. The {".sv":"timestamp"} directive
+// makes the database fill the value in on write, so what gets stored is an
+// ordinary epoch-millisecond number - the same shape the firmware used to
+// compute from NTP, and the dashboard and driver app need no changes. Unlike a
+// local clock it is also authoritative, so the value can never read as 1970.
+void setServerTimestamp(JsonObject parent, const char* key) {
+  JsonObject stamp = parent.createNestedObject(key);
+  stamp[".sv"] = "timestamp";
 }
 
 void syncTimeIfNeeded() {
@@ -269,7 +275,7 @@ void syncTimeIfNeeded() {
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   if (time(nullptr) > 1700000000) {
     timeSynced = true;
-    Serial.println("NTP time synced - cloud timestamps are epoch milliseconds.");
+    Serial.println("NTP time synced. Cloud timestamps come from Firebase's server clock.");
   }
 }
 
@@ -311,7 +317,7 @@ void publishJunctionConfig() {
   doc["rssiFallbackThresholdDbm"] = junction.rssiFallbackThresholdDbm;
   doc["rssiConsecutivePacketCount"] = junction.rssiConsecutivePacketCount;
   doc["reportedBy"] = "lora_receiver";
-  doc["updatedAt"] = cloudTimestamp();
+  setServerTimestamp(doc.as<JsonObject>(), "updatedAt");
 
   String payload;
   serializeJson(doc, payload);
@@ -347,8 +353,8 @@ String telemetryPayload() {
   doc["approaching"] = activePacket.gpsFix && distance <= junction.approachThresholdMeters;
   doc["preemptionEligible"] = preemptionActive();
   doc["source"] = state == RSSI_PREEMPT_ACTIVE ? "rssi_fallback" : "gps_lora";
-  doc["timestamp"] = cloudTimestamp();
-  doc["updatedAt"] = cloudTimestamp();
+  setServerTimestamp(doc.as<JsonObject>(), "timestamp");
+  setServerTimestamp(doc.as<JsonObject>(), "updatedAt");
 
   String payload;
   serializeJson(doc, payload);
@@ -368,7 +374,7 @@ String junctionStatePayload() {
   if (state == RFID_CLEARED && preemptStartedAt > 0) {
     doc["lastDwellTime"] = String((clearedAt - preemptStartedAt) / 1000) + "s";
   }
-  doc["updatedAt"] = cloudTimestamp();
+  setServerTimestamp(doc.as<JsonObject>(), "updatedAt");
 
   String payload;
   serializeJson(doc, payload);
@@ -390,7 +396,7 @@ String eventPayload(const char* eventType, const char* source, const char* preem
   doc["distanceMeters"] = currentDistanceMeters();
   doc["rssi"] = activePacket.rssi;
   doc["source"] = source;
-  doc["timestamp"] = cloudTimestamp();
+  setServerTimestamp(doc.as<JsonObject>(), "timestamp");
 
   String payload;
   serializeJson(doc, payload);
@@ -409,7 +415,7 @@ void publishTelemetry() {
   locationDoc["lat"] = activePacket.lat;
   locationDoc["lng"] = activePacket.lng;
   locationDoc["source"] = "lora_receiver";
-  locationDoc["updatedAt"] = cloudTimestamp();
+  setServerTimestamp(locationDoc.as<JsonObject>(), "updatedAt");
   String locationPayload;
   serializeJson(locationDoc, locationPayload);
   postFirebase(String("ambulances/") + activePacket.ambulanceId + "/lastLocation",
@@ -688,7 +694,7 @@ void handleCloud() {
   if (!wifiConnected) return;
 
   syncTimeIfNeeded();
-  if (!configPublished && timeSynced) {
+  if (!configPublished) {
     publishJunctionConfig();
   }
 }
@@ -707,11 +713,12 @@ void printStatus() {
   Serial.print("  ambulance in zone: "); Serial.println(ambulanceInZone ? "yes" : "no");
 }
 
-// publishJunctionConfig() runs from handleCloud() as soon as WiFi and NTP are
-// up, so a bench correction reaches the database without a reflash.
+// publishJunctionConfig() runs from handleCloud() as soon as WiFi is up, so a
+// bench correction reaches the database without a reflash. It deliberately does
+// not wait on NTP: the timestamps it writes come from Firebase's server clock.
 void printRepublishNote() {
   Serial.println("Junction config will be republished to Firebase.");
-  if (wifiConnected && timeSynced) {
+  if (wifiConnected) {
     publishJunctionConfig();
   }
 }

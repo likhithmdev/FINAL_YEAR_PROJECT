@@ -40,12 +40,18 @@
   Serial commands (115200):
     EMERGENCY ON
     EMERGENCY OFF
-    SIM 12.9750,77.5946,185,42
+    SIM 12.9647,77.5920,180,40
     GPS OFF
     GPS ON
     STATUS
     SET_AMB AMB002
     SET_TRIP TRIP002
+
+  Bench demo
+  ----------
+  BENCH_DEMO_START (below) makes the board power up at a point 300 m north of
+  JNC001 with the heading aimed at it, so an untethered board opens the corridor
+  without anyone typing a SIM command. Override it live at any time with SIM.
 */
 
 #include <Arduino.h>
@@ -90,10 +96,24 @@ bool usingSimulatedFix = false;
 bool buttonDebounced = false;
 unsigned long buttonDebounceTime = 0;
 
+// Define to power up at the bench demo position: about 300 m north of JNC001
+// (12.9620, 77.5920), which is inside the receivers' 500 m trigger, and with
+// the heading aimed straight at the junction, which both roadside units
+// require (each rejects a packet more than 35 degrees off the bearing).
+// Comment this out to ship the realistic road position instead.
+#define BENCH_DEMO_START
+
+#ifdef BENCH_DEMO_START
+double simLat = 12.9647;
+double simLng = 77.5920;
+float simHeadingDeg = 180.0;
+float simSpeedKmph = 40.0;
+#else
 double simLat = 12.9750;
 double simLng = 77.5946;
 float simHeadingDeg = 185.0;
 float simSpeedKmph = 42.0;
+#endif
 
 unsigned long lastBroadcastAt = 0;
 bool lastButtonState = true;
