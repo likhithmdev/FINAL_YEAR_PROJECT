@@ -40,7 +40,7 @@
   Serial commands (115200):
     EMERGENCY ON
     EMERGENCY OFF
-    SIM 12.9647,77.5920,180,40
+    SIM 13.01582,77.629112,180,40
     GPS OFF
     GPS ON
     STATUS
@@ -97,15 +97,15 @@ bool buttonDebounced = false;
 unsigned long buttonDebounceTime = 0;
 
 // Define to power up at the bench demo position: about 300 m north of JNC001
-// (12.9620, 77.5920), which is inside the receivers' 500 m trigger, and with
-// the heading aimed straight at the junction, which both roadside units
+// (13.013123, 77.629112), which is inside the receivers' 500 m trigger, and
+// with the heading aimed straight at the junction, which both roadside units
 // require (each rejects a packet more than 35 degrees off the bearing).
 // Comment this out to ship the realistic road position instead.
 #define BENCH_DEMO_START
 
 #ifdef BENCH_DEMO_START
-double simLat = 12.9647;
-double simLng = 77.5920;
+double simLat = 13.01582;
+double simLng = 77.629112;
 float simHeadingDeg = 180.0;
 float simSpeedKmph = 40.0;
 #else

@@ -129,7 +129,7 @@ describe("normalizeJunctions", () => {
     expect(byId.JNC001.location).toEqual({ lat: 12.5, lng: 77.5 });
     expect(byId.JNC002.location).toEqual({ lat: 12.6, lng: 77.6 });
     // JNC003 has no database coordinates, so the fallback keeps the marker sane.
-    expect(byId.JNC003.location).toEqual({ lat: 12.9668, lng: 77.6072 });
+    expect(byId.JNC003.location).toEqual({ lat: 13.008323, lng: 77.641712 });
   });
 });
 
@@ -140,7 +140,7 @@ describe("normalizeHospitals", () => {
     expect(hospitals[0].name).toBe("City Care Hospital");
     expect(hospitals[0].bedsAvailable).toBeNull();
     expect(hospitals[0].emergencyAvailable).toBe(true);
-    expect(hospitals[0].location).toEqual({ lat: 12.9698, lng: 77.6015 });
+    expect(hospitals[0].location).toEqual({ lat: 13.011323, lng: 77.636012 });
   });
 
   it("overrides fallbacks with database values", () => {

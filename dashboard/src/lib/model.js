@@ -43,16 +43,22 @@ export function severityLabel(severity) {
 // Junction coordinates are not always stored in Firebase. Keep a fallback
 // catalogue for the demo corridor so markers land in a sensible place, while
 // still letting database values win when present.
+//
+// JNC001 is the junction the hardware is actually deployed at. Its position has
+// to agree with the roadside receiver's JunctionConfig, the traffic signal
+// unit's JUNCTION_LAT/LNG and the ambulance's BENCH_DEMO_START point, or the
+// map will draw a preemption corridor kilometres away from the physical one.
+// JNC002/JNC003 are demo-only and keep their relative spacing to JNC001.
 export const JUNCTION_FALLBACKS = {
-  JNC001: { name: "Main Road Junction", lat: 12.9716, lng: 77.5946, lane: "Northbound" },
-  JNC002: { name: "Hospital Cross", lat: 12.9752, lng: 77.6001, lane: "Eastbound" },
-  JNC003: { name: "Emergency Gate", lat: 12.9668, lng: 77.6072, lane: "Southbound" },
+  JNC001: { name: "Main Road Junction", lat: 13.013123, lng: 77.629112, lane: "Northbound" },
+  JNC002: { name: "Hospital Cross", lat: 13.016723, lng: 77.634612, lane: "Eastbound" },
+  JNC003: { name: "Emergency Gate", lat: 13.008323, lng: 77.641712, lane: "Southbound" },
 };
 
 export const HOSPITAL_FALLBACKS = {
-  HOSP001: { name: "City Care Hospital", lat: 12.9698, lng: 77.6015 },
-  HOSP002: { name: "Metro Emergency Center", lat: 12.9812, lng: 77.6121 },
-  HOSP003: { name: "St. Mark Trauma Unit", lat: 12.9601, lng: 77.6178 },
+  HOSP001: { name: "City Care Hospital", lat: 13.011323, lng: 77.636012 },
+  HOSP002: { name: "Metro Emergency Center", lat: 13.022723, lng: 77.646612 },
+  HOSP003: { name: "St. Mark Trauma Unit", lat: 13.001623, lng: 77.652312 },
 };
 
 function coordOf(source) {

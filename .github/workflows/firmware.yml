@@ -1,11 +1,12 @@
 # Compiles every firmware sketch on a GitHub runner so a broken change fails
-# here instead of on the hardware. The firmware is a third, independent build
+# here instead of on the hardware, and checks the serial contract between the
+# two boards that talk to each other. The firmware is a third, independent build
 # system (arduino-cli targeting ESP32 and AVR), which is why it lives in its
 # own workflow rather than beside the dashboard and driver-app jobs in ci.yml.
 #
 # Unlike ci.yml this workflow is path-filtered: firmware only ever depends on
-# files under firmware/, so a dashboard or Android commit has nothing to verify
-# here and would only burn runner minutes.
+# files under firmware/ (plus the contract guard), so a dashboard or Android
+# commit has nothing to verify here and would only burn runner minutes.
 
 name: Firmware
 
@@ -13,10 +14,12 @@ on:
   push:
     paths:
       - "firmware/**"
+      - "scripts/check-uart-contract.mjs"
       - ".github/workflows/firmware.yml"
   pull_request:
     paths:
       - "firmware/**"
+      - "scripts/check-uart-contract.mjs"
       - ".github/workflows/firmware.yml"
   workflow_dispatch:
 
@@ -28,6 +31,26 @@ permissions:
   contents: read
 
 jobs:
+  # Runs first because it is seconds long and needs no board cores. The ESP32
+  # receiver and the junction Arduino cannot compile-check each other's strings,
+  # and a mismatch removes the preemption path without breaking either build, so
+  # it has to be asserted explicitly.
+  uart-contract:
+    name: UART command and reply contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Check the ESP32 <-> Arduino serial contract
+        run: node scripts/check-uart-contract.mjs
+
   # One matrix entry per sketch so a failure names the board that broke and the
   # other sketches still get compiled (fail-fast is off on purpose).
   compile:

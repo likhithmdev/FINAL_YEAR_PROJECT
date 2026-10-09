@@ -1,85 +1,92 @@
 /*
-  Arduino Traffic Controller for Smart Ambulance System
-  Controls traffic signals and RFID, receives commands from ESP32 LoRa Receiver via UART
+  Arduino Traffic Controller - junction signal head + RFID readers
 
-  Hardware:
-  - RFID Entry Reader (Reader 2):
-    * SS: Pin 8
-    * RST: Pin 7
-  - RFID Exit Reader (Reader 1):
-    * SS: Pin 10
-    * RST: Pin 9
-  - Traffic Signal LEDs (using digital pin numbers):
-    * Signal 0: RED=D2, GREEN=D3, YELLOW=D17 (A3 on Uno)
-    * Signal 1: RED=D4, GREEN=D5, YELLOW=D15 (A1 on Uno)
-    * Signal 2: RED=D6, GREEN=D16 (A2 on Uno), YELLOW=D14 (A0 on Uno)
-    * Signal 3: RED=D18 (A4 on Uno), GREEN=D19 (A5 on Uno), no yellow
-  - UART from ESP32:
-    * RX: Connect to ESP32 TX2 (GPIO 17)
-    * TX: Connect to ESP32 RX2 (GPIO 16)
+  This is the sketch the bench wiring was built around, so the hardware flow is
+  unchanged from the version that already runs on the board:
 
-  Commands received from ESP32 via UART:
-  - "AMBULANCE_APPROACH,<signal_id>" - Ambulance approaching, preempt specified signal
-  - "AMBULANCE_OUT_OF_RANGE" - Ambulance out of range, restore normal traffic
+    - 4 signal heads driven straight from digital pins
+    - two MFRC522 readers, one on the approach (ENTRY) and one on the exit
+    - a 5 s green cycle with a 1 s yellow step between signals
+    - an ambulance tag on ENTRY holds its arm green until the tag is seen on
+      EXIT, or until the roadside ESP32 reports the vehicle has gone
+
+  What is new here: the board now actually reads its serial port. The roadside
+  ESP32 (lora_receiver_esp32) has always sent "AMBULANCE_APPROACH,<n>" and
+  "AMBULANCE_OUT_OF_RANGE" at 9600 baud, but nothing on the Uno parsed them, so
+  LoRa preemption could never reach the lights. The RFID flow is untouched.
+
+  ---------------------------------------------------------------------------
+  WIRING
+  ---------------------------------------------------------------------------
+
+  Signal | RED | GREEN | YELLOW
+  -------+-----+-------+-------
+    0    | D2  | D3    | A3
+    1    | D4  | D5    | A4
+    2    | D6  | A1    | A5
+    3    | A0  | A2    | (none - no yellow on this arm)
+
+  RFID ENTRY reader : SS = D8,  RST = D7
+  RFID EXIT  reader : SS = D10, RST = D9
+  Roadside ESP32    : ESP32 TX2 (GPIO17) -> Uno pin 0 (RX)
+                      ESP32 RX2 (GPIO16) <- Uno pin 1 (TX)
+
+  Upload gotcha: the ESP32's TX pin idles high on the Uno's RX line, which is
+  the same line the USB bridge drives. That contention makes uploads fail
+  intermittently with "stk500_getsync(): not in sync". Unplug the
+  ESP32 -> Uno RX wire (or power the ESP32 down) while uploading.
+
+  ---------------------------------------------------------------------------
+  SERIAL CONTRACT (9600 baud)
+  ---------------------------------------------------------------------------
+
+  Received from the ESP32:
+    "AMBULANCE_APPROACH,<signal_id>"  preempt this arm and hold it green
+    "AMBULANCE_OUT_OF_RANGE"          vehicle left, restart the normal cycle
+    "AMBULANCE_EXIT"                  manual "restore normal traffic now"
+
+  Printed for the ESP32 to read back - do not reword these two lines, because
+  lora_receiver_esp32.ino matches them by substring in pollArduinoUart():
+    "AMBULANCE EXIT DETECTED (RFID)"  clearance seen on the EXIT reader
+    "UNAUTHORIZED RFID tag"           tag not present in allowedUIDs
 */
 
 #include <SPI.h>
 #include <MFRC522.h>
 
+
 // =====================================================
 // RFID CONFIGURATION
 // =====================================================
 
-// Physical Reader 2 = ENTRY
-#define ENTRY_SS_PIN 8
-#define ENTRY_RST_PIN 7
+// Reader 2 = ENTRY (approach)
+#define SS_PIN1 8
+#define RST_PIN1 7
 
-// Physical Reader 1 = EXIT
-#define EXIT_SS_PIN 10
-#define EXIT_RST_PIN 9
+// Reader 1 = EXIT
+#define SS_PIN2 10
+#define RST_PIN2 9
 
-MFRC522 entryRFID(ENTRY_SS_PIN, ENTRY_RST_PIN);
-MFRC522 exitRFID(EXIT_SS_PIN, EXIT_RST_PIN);
+MFRC522 entryRFID(SS_PIN1, RST_PIN1); // Entry reader
+MFRC522 exitRFID(SS_PIN2, RST_PIN2);  // Exit reader
 
 
 // =====================================================
-// TRAFFIC SIGNAL LED CONFIGURATION
+// SIGNAL LED CONFIGURATION
 // =====================================================
 
-// Signal 0
-// RED   = D2
-// GREEN = D3
-// YELLOW = D14 (A0 on Uno)
-
-// Signal 1
-// RED   = D4
-// GREEN = D5
-// YELLOW = D15 (A1 on Uno)
-
-// Signal 2
-// RED   = D6
-// GREEN = D16 (A2 on Uno)
-// YELLOW = D17 (A3 on Uno)
-
-// Signal 3
-// RED   = D18 (A4 on Uno)
-// GREEN = D19 (A5 on Uno)
-// (No yellow for signal 3)
-
-// Using digital pin numbers for compatibility across Arduino boards
-// For Arduino Uno/Nano: A0=14, A1=15, A2=16, A3=17, A4=18, A5=19
-// For Arduino Mega: A0=54, A1=55, A2=56, A3=57, A4=58, A5=59
+// 4 signals (RED + GREEN); the first 3 also have a YELLOW
 
 int redLED[4] = {
-  2, 4, 6, 18   // Signal 0,1,2,3 RED pins
+  2, 4, 6, A0
 };
 
 int greenLED[4] = {
-  3, 5, 16, 19  // Signal 0,1,2,3 GREEN pins
+  3, 5, A1, A2
 };
 
-int yellowLED[4] = {
-  17, 15, 14, -1  // Signal 0,1,2,3 YELLOW pins (-1 = no yellow for signal 3)
+int yellowLED[3] = {
+  A3, A4, A5
 };
 
 
@@ -91,7 +98,7 @@ String allowedUIDs[] = {
   "04C0F0F2021390"
 };
 
-const int totalTags = 1;
+int totalTags = 1;
 
 
 // =====================================================
@@ -111,9 +118,13 @@ unsigned long lastSwitch = 0;
 // =====================================================
 
 bool ambulanceActive = false;
-bool uartTriggered = false; // True if ambulance mode triggered by ESP32 UART
 
-// Signal that will become GREEN when ambulance arrives
+// True when the ESP32 put us in ambulance mode. "AMBULANCE_OUT_OF_RANGE" must
+// only release a hold the ESP32 created - if the hold came from an RFID tag on
+// ENTRY, an out-of-range report from the receiver must not cancel it.
+bool uartTriggered = false;
+
+// Which signal should become GREEN when an ambulance arrives
 int entrySignalID = 0;
 
 
@@ -125,80 +136,100 @@ String uartBuffer = "";
 unsigned long lastUartActivity = 0;
 
 void processUartCommand(String command) {
+
   command.trim();
-  
+
   if (command.length() == 0) return;
-  
+
   Serial.print("Received UART command: ");
   Serial.println(command);
-  
+
   if (command.startsWith("AMBULANCE_APPROACH,")) {
+
     int signalId = command.substring(19).toInt();
-    
+
     if (signalId >= 0 && signalId < 4) {
+
       Serial.println("================================");
       Serial.println("AMBULANCE APPROACHING FROM ESP32");
       Serial.print("Preempting Signal ");
       Serial.println(signalId);
       Serial.println("================================");
-      
+
       ambulanceActive = true;
       uartTriggered = true;
       entrySignalID = signalId;
       currentSignal = signalId;
+
       setSignal(currentSignal);
-      
+
       Serial.print("Signal ");
       Serial.print(currentSignal);
       Serial.println(" WILL STAY GREEN");
     }
   }
   else if (command == "AMBULANCE_OUT_OF_RANGE") {
+
     if (ambulanceActive && uartTriggered) {
+
       Serial.println("================================");
       Serial.println("AMBULANCE OUT OF RANGE (ESP32)");
       Serial.println("RESTORING NORMAL TRAFFIC");
       Serial.println("================================");
-      
+
       ambulanceActive = false;
       uartTriggered = false;
+
+      // Restart the normal cycle timer
       lastSwitch = millis();
+
       setSignal(currentSignal);
     }
   }
   else if (command == "AMBULANCE_EXIT") {
-    // This command can be sent manually or via ESP32 if needed
+
+    // Manual "restore now", for a serial console or a host script.
     if (ambulanceActive) {
+
       Serial.println("================================");
-      Serial.println("AMBULANCE EXIT DETECTED");
+      Serial.println("AMBULANCE EXIT (SERIAL COMMAND)");
       Serial.println("RESTORING NORMAL TRAFFIC");
       Serial.println("================================");
-      
+
       ambulanceActive = false;
       uartTriggered = false;
+
       lastSwitch = millis();
+
       setSignal(currentSignal);
     }
   }
 }
 
 void readUartCommands() {
+
   while (Serial.available() > 0) {
+
     char c = Serial.read();
-    
+
     if (c == '\n' || c == '\r') {
+
       if (uartBuffer.length() > 0) {
+
         processUartCommand(uartBuffer);
         uartBuffer = "";
       }
-    } else {
+    }
+    else {
+
       uartBuffer += c;
       lastUartActivity = millis();
     }
   }
-  
-  // Clear buffer if no activity for 100ms (incomplete command)
+
+  // Drop a partial command if the sender stopped mid-line
   if (uartBuffer.length() > 0 && millis() - lastUartActivity > 100) {
+
     uartBuffer = "";
   }
 }
@@ -218,54 +249,28 @@ void setup() {
   Serial.println("With ESP32 UART Integration");
   Serial.println("================================");
 
-
-  // ---------------------------------------------------
-  // Start SPI
-  // ---------------------------------------------------
-
   SPI.begin();
 
+  // Disable both RFID readers initially
+  pinMode(SS_PIN1, OUTPUT);
+  pinMode(SS_PIN2, OUTPUT);
 
-  // ---------------------------------------------------
-  // RFID SS pins
-  // ---------------------------------------------------
-
-  pinMode(ENTRY_SS_PIN, OUTPUT);
-  pinMode(EXIT_SS_PIN, OUTPUT);
-
-  // Deselect both RFID readers
-  digitalWrite(ENTRY_SS_PIN, HIGH);
-  digitalWrite(EXIT_SS_PIN, HIGH);
-
-
-  // ---------------------------------------------------
-  // Initialize ENTRY RFID
-  // Physical Reader 2
-  // ---------------------------------------------------
-
-  Serial.println("Initializing ENTRY RFID...");
-
-  entryRFID.PCD_Init();
+  digitalWrite(SS_PIN1, HIGH);
+  digitalWrite(SS_PIN2, HIGH);
 
   delay(100);
 
-
-  // ---------------------------------------------------
-  // Initialize EXIT RFID
-  // Physical Reader 1
-  // ---------------------------------------------------
+  // Initialize RFID readers
+  Serial.println("Initializing ENTRY RFID...");
+  entryRFID.PCD_Init();
+  delay(50);
 
   Serial.println("Initializing EXIT RFID...");
-
   exitRFID.PCD_Init();
+  delay(50);
 
-  delay(100);
 
-
-  // ---------------------------------------------------
-  // Traffic LED pins
-  // ---------------------------------------------------
-
+  // Signal LEDs
   for (int i = 0; i < 4; i++) {
 
     pinMode(redLED[i], OUTPUT);
@@ -276,10 +281,7 @@ void setup() {
   }
 
 
-  // ---------------------------------------------------
-  // Yellow LED pins
-  // ---------------------------------------------------
-
+  // Yellow LEDs
   for (int i = 0; i < 3; i++) {
 
     pinMode(yellowLED[i], OUTPUT);
@@ -288,48 +290,41 @@ void setup() {
   }
 
 
-  // ---------------------------------------------------
-  // Start traffic
-  // ---------------------------------------------------
-
+  // Start with Signal 0 GREEN
   currentSignal = 0;
 
   setSignal(currentSignal);
 
   lastSwitch = millis();
 
-
   Serial.println();
   Serial.println("SYSTEM READY");
   Serial.println("ENTRY = RFID Reader 2");
   Serial.println("EXIT  = RFID Reader 1");
-  Serial.println("UART = Connected to ESP32");
+  Serial.println("UART  = Connected to ESP32");
   Serial.println("================================");
 }
 
 
 // =====================================================
-// MAIN LOOP
+// LOOP
 // =====================================================
 
 void loop() {
 
-  // ===================================================
-  // READ UART COMMANDS FROM ESP32
-  // ===================================================
-  
+  // Service the ESP32 first, in every mode
   readUartCommands();
 
 
-  // ===================================================
+  // =================================================
   // AMBULANCE MODE
-  // ===================================================
+  // =================================================
 
   if (ambulanceActive) {
 
-    // During ambulance mode:
-    // Check EXIT RFID regardless of trigger source
-    if (checkRFID(exitRFID, EXIT_SS_PIN)) {
+    // Only check the EXIT reader; the held arm stays green until either the
+    // EXIT reader clears it or the ESP32 reports the vehicle is gone.
+    if (checkRFID(exitRFID, SS_PIN2)) {
 
       Serial.println();
       Serial.println("********************************");
@@ -337,14 +332,11 @@ void loop() {
       Serial.println("NORMAL TRAFFIC RESUMING");
       Serial.println("********************************");
 
-      // Disable ambulance mode
       ambulanceActive = false;
       uartTriggered = false;
 
-      // Restart normal cycle timer
       lastSwitch = millis();
 
-      // Continue from current signal
       setSignal(currentSignal);
     }
 
@@ -352,13 +344,12 @@ void loop() {
   }
 
 
-  // ===================================================
+  // =================================================
   // NORMAL MODE
-  // ===================================================
+  // =================================================
 
-  // Check ENTRY RFID (legacy manual trigger)
-  // Physical Reader 2
-  if (checkRFID(entryRFID, ENTRY_SS_PIN)) {
+  // Reader 2 = ENTRY
+  if (checkRFID(entryRFID, SS_PIN1)) {
 
     Serial.println();
     Serial.println("********************************");
@@ -366,30 +357,25 @@ void loop() {
     Serial.println("STOPPING NORMAL TRAFFIC");
     Serial.println("********************************");
 
-
-    // Enable ambulance mode
     ambulanceActive = true;
-    uartTriggered = false; // RFID triggered, not UART
+    uartTriggered = false; // this hold came from the tag, not the ESP32
 
-
-    // Set ambulance signal
+    // Ambulance gets Signal 0 GREEN
     currentSignal = entrySignalID;
 
     setSignal(currentSignal);
-
 
     Serial.print("Signal ");
     Serial.print(currentSignal);
     Serial.println(" WILL STAY GREEN");
 
-
     return;
   }
 
 
-  // ===================================================
+  // =================================================
   // NORMAL TRAFFIC CYCLE
-  // ===================================================
+  // =================================================
 
   if (millis() - lastSwitch >= cycleTime) {
 
@@ -409,14 +395,21 @@ void changeToNextSignal() {
   int previousSignal = currentSignal;
 
 
-  // ---------------------------------------------------
+  // -------------------------------------------------
+  // Turn previous GREEN OFF
+  // -------------------------------------------------
+
+  digitalWrite(greenLED[previousSignal], LOW);
+
+
+  // -------------------------------------------------
   // Yellow before changing
-  // ---------------------------------------------------
+  // -------------------------------------------------
 
-  if (previousSignal < 4 && yellowLED[previousSignal] != -1) {
+  if (previousSignal < 3) {
 
-    // Turn GREEN OFF
-    digitalWrite(greenLED[previousSignal], LOW);
+    // Make sure RED is OFF
+    digitalWrite(redLED[previousSignal], LOW);
 
     // Turn YELLOW ON
     digitalWrite(yellowLED[previousSignal], HIGH);
@@ -425,18 +418,16 @@ void changeToNextSignal() {
     Serial.print(previousSignal);
     Serial.println(" -> YELLOW");
 
-
     delay(1000);
-
 
     // Turn YELLOW OFF
     digitalWrite(yellowLED[previousSignal], LOW);
   }
 
 
-  // ---------------------------------------------------
-  // Next signal
-  // ---------------------------------------------------
+  // -------------------------------------------------
+  // Move to next signal
+  // -------------------------------------------------
 
   currentSignal++;
 
@@ -445,7 +436,10 @@ void changeToNextSignal() {
   }
 
 
-  // Set next signal GREEN
+  // -------------------------------------------------
+  // Set next signal
+  // -------------------------------------------------
+
   setSignal(currentSignal);
 }
 
@@ -454,33 +448,57 @@ void changeToNextSignal() {
 // SET SIGNAL
 // =====================================================
 
+// One signal = GREEN
+// All other signals = RED
+// No RED + YELLOW combination
+
 void setSignal(int signal) {
 
-  Serial.print("Setting Signal ");
-  Serial.print(signal);
-  Serial.println(" GREEN");
+  // -------------------------------------------------
+  // Turn OFF ALL LEDs first
+  // -------------------------------------------------
 
+  for (int i = 0; i < 4; i++) {
+
+    digitalWrite(redLED[i], LOW);
+    digitalWrite(greenLED[i], LOW);
+  }
+
+  for (int i = 0; i < 3; i++) {
+
+    digitalWrite(yellowLED[i], LOW);
+  }
+
+
+  // -------------------------------------------------
+  // Selected signal = GREEN
+  // Other signals = RED
+  // -------------------------------------------------
 
   for (int i = 0; i < 4; i++) {
 
     if (i == signal) {
 
-      // Selected signal
       digitalWrite(redLED[i], LOW);
       digitalWrite(greenLED[i], HIGH);
 
-    } else {
+    }
+    else {
 
-      // All other signals RED
       digitalWrite(greenLED[i], LOW);
       digitalWrite(redLED[i], HIGH);
     }
   }
+
+
+  Serial.print("Setting Signal ");
+  Serial.print(signal);
+  Serial.println(" GREEN");
 }
 
 
 // =====================================================
-// RFID CHECK FUNCTION
+// RFID VERIFICATION
 // =====================================================
 
 bool checkRFID(MFRC522 &rfid, int ssPin) {
@@ -488,36 +506,32 @@ bool checkRFID(MFRC522 &rfid, int ssPin) {
   bool success = false;
 
 
-  // ---------------------------------------------------
-  // Make sure BOTH readers are deselected
-  // ---------------------------------------------------
+  // -------------------------------------------------
+  // Disable BOTH readers
+  // -------------------------------------------------
 
-  digitalWrite(ENTRY_SS_PIN, HIGH);
-  digitalWrite(EXIT_SS_PIN, HIGH);
+  digitalWrite(SS_PIN1, HIGH);
+  digitalWrite(SS_PIN2, HIGH);
 
 
-  // ---------------------------------------------------
-  // Select requested RFID reader
-  // ---------------------------------------------------
+  // -------------------------------------------------
+  // Enable requested reader
+  // -------------------------------------------------
 
   digitalWrite(ssPin, LOW);
 
 
-  // ---------------------------------------------------
-  // Check for card
-  // ---------------------------------------------------
+  // -------------------------------------------------
+  // Check for RFID card
+  // -------------------------------------------------
 
   if (rfid.PICC_IsNewCardPresent() &&
       rfid.PICC_ReadCardSerial()) {
 
-
-    // -------------------------------------------------
-    // Build UID string
-    // -------------------------------------------------
-
     String scannedUID = "";
 
 
+    // Build UID
     for (byte i = 0; i < rfid.uid.size; i++) {
 
       if (rfid.uid.uidByte[i] < 0x10) {
@@ -534,10 +548,7 @@ bool checkRFID(MFRC522 &rfid, int ssPin) {
     scannedUID.toUpperCase();
 
 
-    // -------------------------------------------------
-    // Print scanned UID
-    // -------------------------------------------------
-
+    // Print UID
     Serial.print("Scanned UID: ");
     Serial.println(scannedUID);
 
@@ -552,42 +563,43 @@ bool checkRFID(MFRC522 &rfid, int ssPin) {
 
         success = true;
 
+        if (ssPin == SS_PIN1) {
+
+          Serial.println("Ambulance detected at ENTRY");
+
+        }
+        else {
+
+          Serial.println("Ambulance EXIT detected");
+        }
+
         break;
       }
     }
 
 
-    // -------------------------------------------------
     // Authorized
-    // -------------------------------------------------
-
     if (success) {
 
       Serial.println("AUTHORIZED RFID");
     }
-
-    // -------------------------------------------------
-    // Unauthorized
-    // -------------------------------------------------
-
+    // Unauthorized. The receiver greps for "UNAUTHORIZED RFID", so the wording
+    // here is load-bearing even though the tag is rejected either way.
     else {
 
-      Serial.println("UNAUTHORIZED RFID");
+      Serial.println("UNAUTHORIZED RFID tag");
     }
 
 
-    // -------------------------------------------------
-    // Stop card communication
-    // -------------------------------------------------
-
+    // Stop RFID communication
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
   }
 
 
-  // ---------------------------------------------------
-  // Deselect RFID reader
-  // ---------------------------------------------------
+  // -------------------------------------------------
+  // Disable reader
+  // -------------------------------------------------
 
   digitalWrite(ssPin, HIGH);
 

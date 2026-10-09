@@ -156,35 +156,35 @@ attempted, and `STATUS` reports it, but nothing depends on it.
 - 3.3V → 3.3V
 - GND → GND
 
-**Traffic Signal LEDs (using digital pin numbers):**
+**Traffic Signal LEDs:**
 
-**Signal 0:**
-- RED → D2
-- GREEN → D3
-- YELLOW → D17 (A3 on Arduino Uno)
+| Signal | RED | GREEN | YELLOW |
+| --- | --- | --- | --- |
+| 0 | D2 | D3 | A3 |
+| 1 | D4 | D5 | A4 |
+| 2 | D6 | A1 | A5 |
+| 3 | A0 | A2 | (none) |
 
-**Signal 1:**
-- RED → D4
-- GREEN → D5
-- YELLOW → D15 (A1 on Arduino Uno)
-
-**Signal 2:**
-- RED → D6
-- GREEN → D16 (A2 on Arduino Uno)
-- YELLOW → D14 (A0 on Arduino Uno)
-
-**Signal 3:**
-- RED → D18 (A4 on Arduino Uno)
-- GREEN → D19 (A5 on Arduino Uno)
-- (No yellow for signal 3)
-
-**Note:** For Arduino Uno/Nano: A0=14, A1=15, A2=16, A3=17, A4=18, A5=19
-For Arduino Mega: A0=54, A1=55, A2=56, A3=57, A4=58, A5=59
+**Note:** On an Uno/Nano, A0-A5 *are* digital pins 14-19, so `A3` and `17` name
+the same pin; the sketch uses the `A0`-`A5` names because that is how the board
+is silkscreened (on a Mega they are 54-59). Signal 3 has no yellow head, which
+is why `yellowLED[]` holds only three entries and the cycle step is guarded with
+`previousSignal < 3`.
 
 **UART from ESP32 (Serial2):**
 - RX (Pin 0) → ESP32 TX2 (GPIO 17)
 - TX (Pin 1) → ESP32 RX2 (GPIO 16)
 - GND → ESP32 GND (common ground required)
+
+> **Upload gotcha:** the ESP32's TX pin idles high on the Uno's RX line, which
+> is the same line the USB bridge drives. That contention causes intermittent
+> `stk500_getsync(): not in sync: resp=0x00` upload failures - if an upload
+> fails, retry, and if it keeps failing unplug the ESP32 → Uno RX wire or power
+> the roadside ESP32 down.
+>
+> **Voltage:** the Uno's TX (pin 1) swings to 5 V and the ESP32's GPIO 16 is not
+> 5 V tolerant. Put a divider (roughly 1 kΩ over 2 kΩ) on the Uno TX → ESP32 RX
+> line so the receiver's pin is not over-driven.
 
 **Power:**
 - USB or external 5V supply
@@ -210,6 +210,23 @@ The Arduino receives these commands via Serial (9600 baud):
 3. **`AMBULANCE_EXIT`**
    - Manual command (can be sent if needed)
    - Arduino restores normal traffic cycle
+
+### Replies the Arduino sends back
+
+The line is not one-way. An RFID stop-line release happens on the Arduino, so
+the receiver reads the Arduino's serial output back and turns those lines into
+`rfid_clearance` database events. It matches them by substring, so the wording
+below is load-bearing: renaming one silently disables the handshake:
+
+| Arduino prints | Receiver reaction |
+| --- | --- |
+| `AMBULANCE EXIT DETECTED (RFID)` | publishes an `rfid_clearance` event and restores the corridor |
+| `UNAUTHORIZED RFID tag` | logs an unauthorized tag at the stop line |
+
+`node scripts/check-uart-contract.mjs` asserts this contract in both directions
+(commands, replies, baud rate, and the fixed `substring()` offset used to read
+the signal ID) so a rename on either side fails the build instead of quietly
+breaking the junction.
 
 ---
 
@@ -261,8 +278,8 @@ struct JunctionConfig {
   String junctionId = "JNC001";
   String name = "Main Road Junction";      // display only, not published
   String approachLane = "Northbound";      // display only, not published
-  double lat = 12.962;                     // MUST match the junction in the database
-  double lng = 77.592;
+  double lat = 13.013123;                  // MUST match the junction the other units use
+  double lng = 77.629112;
   float approachThresholdMeters = 500.0;    // trigger distance in meters
   unsigned long gpsPacketTimeoutMs = 5000;
   unsigned long clearanceTimeoutMs = 90000;
@@ -288,6 +305,23 @@ these commands on its USB serial (115200 baud):
 | `SET_THRESHOLD <m>` | change the trigger distance and republish it |
 | `SET_JUNCTION <id>` | point the unit at another junction and republish |
 | `RELOAD` | republish the junction config now |
+
+**The junction position is baked into four source files.** They have to agree,
+otherwise the corridor the dashboard draws and the area the hardware triggers on
+describe different places:
+
+| Where | What holds the position |
+| --- | --- |
+| `firmware/lora_receiver_esp32/lora_receiver_esp32.ino` | `JunctionConfig.lat` / `.lng` |
+| `firmware/traffic_signal_unit/traffic_signal_unit.ino` | `JUNCTION_LAT` / `JUNCTION_LNG` |
+| `firmware/ambulance_unit/ambulance_unit.ino` | the `BENCH_DEMO_START` position, 300 m north of the junction |
+| `dashboard/src/lib/model.js`, `seed.js`, `demoScenario.js` | the `JNC001` fallback, the seed row and the demo route |
+
+The `junctions/JNC001` row is not a fifth copy to maintain: the receiver
+republishes it from its own config at boot, and on demand with `RELOAD`. An
+earlier revision had the firmware on 12.9620, 77.5920 and the dashboard on
+12.9716, 77.5946 - about 1.1 km apart - which is exactly wide enough to make the
+two disagree in a live demo.
 
 **Do not put a database secret in the firmware.** Earlier revisions of this
 guide told you to fetch one from Service Accounts → Database Secrets. That
@@ -326,13 +360,14 @@ The same file carries this switch, near the simulated-fix variables:
 #define BENCH_DEMO_START
 ```
 
-With it defined, the board powers up at **12.9647, 77.5920, heading 180, 40 km/h** -
-which measures 300 m north of JNC001, so the packet is inside the receivers'
-500 m trigger and the heading matches the bearing to the junction exactly. A
-board on a battery therefore opens the corridor with nobody typing a command.
+With it defined, the board powers up at **13.01582, 77.629112, heading 180,
+40 km/h** - which measures 300 m north of JNC001, so the packet is inside the
+receivers' 500 m trigger and the heading matches the bearing to the junction
+exactly. A board on a battery therefore opens the corridor with nobody typing a
+command.
 
 Comment the line out to restore the realistic road default (12.9750, 77.5946,
-heading 185), which sits 1473 m from JNC001 and triggers nothing. The board also
+heading 185), which sits about 5.7 km from JNC001 and triggers nothing. The board also
 starts transmitting immediately (`START_IN_EMERGENCY`), so `EMERGENCY ON` is not
 needed either; use the `SIM` command only to move it somewhere else at runtime.
 
@@ -462,28 +497,28 @@ drives the physical light. Both listen on 433 MHz, so one transmitter drives bot
 The traffic signal unit ignores a packet unless the ambulance is inside 500 m of
 its own junction **and** within 35 degrees of the bearing to that junction, so the
 heading the ambulance transmits is not optional. All three boards now default to
-the same junction, 12.9620, 77.5920 (JNC001 in the database), and the ambulance
-already powers up inside the trigger pointing at it:
+the same junction, 13.013123, 77.629112 (JNC001), and the ambulance already
+powers up inside the trigger pointing at it:
 
 | Step | Where | Command / check |
 | --- | --- | --- |
 | 1 | LoRa receiver | Send `STATUS`: expect `wifi: connected` and `config published to Firebase: yes`. (`time synced: no` is harmless - the timestamps come from Firebase's clock) |
-| 2 | Traffic signal unit | Optional: send `SET_LAT 12.9620` and `SET_LNG 77.5920` if you moved it |
-| 3 | Ambulance ESP32 | Nothing needed - `BENCH_DEMO_START` already powers it up at 12.9647, 77.5920, heading 180, 300 m north of the junction, and it transmits from power-on. Send `SIM <lat>,<lng>,<heading>,<speed>` only to move it elsewhere |
+| 2 | Traffic signal unit | Optional: send `SET_LAT 13.013123` and `SET_LNG 77.629112` if you moved it |
+| 3 | Ambulance ESP32 | Nothing needed - `BENCH_DEMO_START` already powers it up at 13.01582, 77.629112, heading 180, 300 m north of the junction, and it transmits from power-on. Send `SIM <lat>,<lng>,<heading>,<speed>` only to move it elsewhere |
 | 4 | Ambulance ESP32 | Expect `[TX] ...` every broadcast interval |
 | 5 | LoRa receiver | Expect `AMBULANCE WITHIN TRIGGER ZONE!`, then `[EVENT] type=gps_preempt_started` |
 | 6 | Traffic signal unit | Expect the ambulance direction to go green and the cross direction red |
 | 7 | Dashboard | Junction panel goes to `priority_active`, event feed shows the preemption, map shows the ambulance |
 | 8 | Either | Send `EMERGENCY OFF` on the ambulance, or stop transmitting, and confirm the corridor restores after the packet timeout |
 
-The heading matters: 12.9647, 77.5920 sits north of the junction, so the bearing to
+The heading matters: 13.01582, 77.629112 sits north of the junction, so the bearing to
 the junction is 180 degrees. A heading of 0 passes the LoRa receiver (it triggers on
 distance alone) but the traffic signal unit rejects it as travelling away, and the
 light will not change.
 
 If you send your own `SIM` instead of relying on the default, place it within
-500 m of 12.9620, 77.5920 and point the heading at that point. Both receivers now
-default to the same junction, so a single position satisfies both of them.
+500 m of 13.013123, 77.629112 and point the heading at that point. Both receivers
+now default to the same junction, so a single position satisfies both of them.
 
 ---
 
@@ -502,6 +537,25 @@ default to the same junction, so a single position satisfies both of them.
 - Check baud rate (9600 for Arduino, 115200 for ESP32 debug)
 - Use Serial Monitor at correct baud rate
 - Note: ESP32 uses Serial2 for Arduino communication (pins 16/17)
+
+### The serial console is drowned in repeating driver errors
+
+If the receiver's console fills with `wifi:sta is connecting, cannot set config`
+instead of its own output, the board is retrying an unreachable access point
+faster than you can read it. Because `Serial.print()` blocks once the 128 byte
+TX buffer fills, that also slows the main loop, which is why the symptom shows up
+as unreliable timing rather than as a visible error. The sketch now silences the
+WiFi driver's own logging and turns off its auto-reconnect, so it retries once
+every 10 s and prints `Attempting to reconnect to WiFi...` instead.
+
+To tell a genuine flood from a serial-probe artifact, measure the raw byte rate
+rather than eyeballing text - a line physically cannot carry more than `baud/10`
+bytes per second, so anything above that means the reading is unreliable, not that
+the board is faster:
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-serial-rate.ps1 -Port COM9 -Baud 115200 -Seconds 10
+```
 
 ### RFID Not Working
 - Check SPI pin connections

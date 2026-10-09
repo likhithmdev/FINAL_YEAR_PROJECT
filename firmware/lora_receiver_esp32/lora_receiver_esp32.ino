@@ -63,6 +63,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <esp_log.h>
 
 // ---------------------------------------------------------------------------
 // Pin and link configuration
@@ -91,22 +92,24 @@ const char* FIREBASE_HOST = "smart-ambulance-36f9d-default-rtdb.firebaseio.com";
 // Junction configuration
 //
 // These are the unit's own values and publishJunctionConfig() writes them into
-// junctions/<junctionId> at boot. The position is the database's JNC001
-// position on purpose: this sketch previously carried 13.013123, 77.629112, a
-// pair roughly 60 km away from the junction the software displays.
+// junctions/<junctionId> at boot. 13.013123, 77.629112 is where the junction
+// hardware actually sits, and the same pair is the default in
+// traffic_signal_unit.ino and in the ambulance's BENCH_DEMO_START position, so
+// all three units agree on the geometry.
 //
-// WARNING - the trigger geometry depends on this position. If the ambulance's
-// GPS reads near 13.013123, 77.629112 then the computed distance will be tens
-// of kilometres and preemption will never fire. Correct it on the bench with
-// SET_LAT / SET_LNG on the USB serial rather than reflashing.
+// WARNING - the trigger geometry depends on this position. An earlier revision
+// carried 12.962, 77.592, about 7 km from the real junction, which put every
+// packet outside the 500 m trigger so preemption could never fire. If the
+// junction moves, change it here AND in the ambulance bench position AND in
+// junctions/JNC001 on the cloud side, or at runtime with SET_LAT / SET_LNG.
 // ---------------------------------------------------------------------------
 
 struct JunctionConfig {
   String junctionId = "JNC001";
   String name = "Main Road Junction";
   String approachLane = "Northbound";
-  double lat = 12.962;
-  double lng = 77.592;
+  double lat = 13.013123;
+  double lng = 77.629112;
   float approachThresholdMeters = 500.0;
   unsigned long gpsPacketTimeoutMs = 5000;
   unsigned long clearanceTimeoutMs = 90000;
@@ -673,10 +676,18 @@ void handleTimeouts() {
 void handleWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnected = false;
+    // Retry on a 10 s backoff, and only from a settled state. Calling
+    // WiFi.begin() while the station is still connecting makes the driver
+    // reject the config with "sta is connecting, cannot set config" - see the
+    // note in setup() for why that matters more than it sounds.
     if (millis() - lastWifiAttemptAt > 10000) {
       lastWifiAttemptAt = millis();
       Serial.println("Attempting to reconnect to WiFi...");
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      if (WiFi.status() == WL_NO_SSID_AVAIL || WiFi.status() == WL_CONNECT_FAILED ||
+          WiFi.status() == WL_CONNECTION_LOST || WiFi.status() == WL_DISCONNECTED ||
+          WiFi.status() == WL_IDLE_STATUS) {
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      }
     }
     return;
   }
@@ -799,7 +810,18 @@ void setup() {
   Serial.println("--- ESP32 LoRa Receiver for Smart Ambulance ---");
   Serial.println("Initializing WiFi...");
 
+  // The WiFi driver logs "sta is connecting, cannot set config" on a tight loop
+  // whenever the configured AP is unreachable, which is the normal state on the
+  // bench. That flood swamps this console AND starves loop(), because
+  // Serial.print() blocks once the 128 byte TX buffer fills - so preemption
+  // timing degrades exactly when the unit is being demonstrated offline. We do
+  // our own retry, so switch the driver's logging off and stop its
+  // auto-reconnect from holding the station in the connecting state.
+  esp_log_level_set("wifi", ESP_LOG_NONE);
+  esp_log_level_set("wifi_init", ESP_LOG_NONE);
+
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(false);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to WiFi");
   int wifiAttempts = 0;

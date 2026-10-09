@@ -87,7 +87,7 @@ export default function MapPanel({ corridors = [], junctions = [], hospitals = [
 
   const fitKey = `${trackPoints.length}:${junctions.length}:${hospitals.filter((h) => h.location).length}`;
   const destinationIds = new Set(corridors.map((c) => c.ambulance?.destinationHospitalId).filter(Boolean));
-  const center = trackPoints[0] || (junctions.find((j) => j.location)?.location ? [junctions.find((j) => j.location).location.lat, junctions.find((j) => j.location).location.lng] : [12.9716, 77.5946]);
+  const center = trackPoints[0] || (junctions.find((j) => j.location)?.location ? [junctions.find((j) => j.location).location.lat, junctions.find((j) => j.location).location.lng] : [13.013123, 77.629112]);
 
   return (
     <div className="map-wrap">

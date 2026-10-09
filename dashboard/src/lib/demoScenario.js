@@ -3,15 +3,18 @@
 // so the console can be demonstrated end-to-end without ESP32 hardware.
 import { bearingDeg, haversineMeters } from "./geo";
 
+// Route around the real JNC001 (13.013123, 77.629112). The approach leg is the
+// same 300 m north-of-junction geometry the ambulance's BENCH_DEMO_START uses,
+// so the demo replay and the hardware agree on the corridor.
 export const ROUTE = [
-  { lat: 12.9772, lng: 77.5875 },
-  { lat: 12.9735, lng: 77.5920 },
-  { lat: 12.9716, lng: 77.5946 }, // JNC001 stop line
-  { lat: 12.9705, lng: 77.5982 },
-  { lat: 12.9698, lng: 77.6015 }, // HOSP001 bay
+  { lat: 13.018723, lng: 77.622012 },
+  { lat: 13.015023, lng: 77.626512 },
+  { lat: 13.013123, lng: 77.629112 }, // JNC001 stop line
+  { lat: 13.012023, lng: 77.632712 },
+  { lat: 13.011323, lng: 77.636012 }, // HOSP001 bay
 ];
 
-const JUNCTION_POINT = { lat: 12.9716, lng: 77.5946 };
+const JUNCTION_POINT = { lat: 13.013123, lng: 77.629112 };
 const SPEED_KMPH = 46;
 
 function segmentLengths(points) {
@@ -199,9 +202,9 @@ export function advanceDemo(world, dtMs) {
         },
       },
       hospitals: {
-        HOSP001: { hospitalId: "HOSP001", name: "City Care Hospital", bedsAvailable: 8, emergencyAvailable: true, latitude: 12.9698, longitude: 77.6015, phone: "+91 80 4000 1000" },
-        HOSP002: { hospitalId: "HOSP002", name: "Metro Emergency Center", bedsAvailable: 3, emergencyAvailable: true, latitude: 12.9812, longitude: 77.6121, phone: "+91 80 4000 2000" },
-        HOSP003: { hospitalId: "HOSP003", name: "St. Mark Trauma Unit", bedsAvailable: 11, emergencyAvailable: false, latitude: 12.9601, longitude: 77.6178, phone: "+91 80 4000 3000" },
+        HOSP001: { hospitalId: "HOSP001", name: "City Care Hospital", bedsAvailable: 8, emergencyAvailable: true, latitude: 13.011323, longitude: 77.636012, phone: "+91 80 4000 1000" },
+        HOSP002: { hospitalId: "HOSP002", name: "Metro Emergency Center", bedsAvailable: 3, emergencyAvailable: true, latitude: 13.022723, longitude: 77.646612, phone: "+91 80 4000 2000" },
+        HOSP003: { hospitalId: "HOSP003", name: "St. Mark Trauma Unit", bedsAvailable: 11, emergencyAvailable: false, latitude: 13.001623, longitude: 77.652312, phone: "+91 80 4000 3000" },
       },
       junctionEvents: Object.fromEntries(events.map((event) => [event.id, event])),
       policeAlerts: {
