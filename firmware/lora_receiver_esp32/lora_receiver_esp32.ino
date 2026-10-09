@@ -676,16 +676,19 @@ void handleTimeouts() {
 void handleWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnected = false;
-    // Retry on a 10 s backoff, and only from a settled state. Calling
-    // WiFi.begin() while the station is still connecting makes the driver
-    // reject the config with "sta is connecting, cannot set config" - see the
-    // note in setup() for why that matters more than it sounds.
+    // Retry on a 10 s backoff, and only from a settled state.
+    //
+    // WL_IDLE_STATUS is deliberately absent. The core sets it on
+    // ARDUINO_EVENT_WIFI_STA_CONNECTED (associated, still waiting for an IP)
+    // and on STA_LOST_IP, so it is a transient connecting state rather than a
+    // failure. Re-arming there is exactly what the driver rejects with
+    // "sta is connecting, cannot set config".
     if (millis() - lastWifiAttemptAt > 10000) {
       lastWifiAttemptAt = millis();
-      Serial.println("Attempting to reconnect to WiFi...");
-      if (WiFi.status() == WL_NO_SSID_AVAIL || WiFi.status() == WL_CONNECT_FAILED ||
-          WiFi.status() == WL_CONNECTION_LOST || WiFi.status() == WL_DISCONNECTED ||
-          WiFi.status() == WL_IDLE_STATUS) {
+      wl_status_t wifiState = WiFi.status();
+      if (wifiState == WL_NO_SSID_AVAIL || wifiState == WL_CONNECT_FAILED ||
+          wifiState == WL_CONNECTION_LOST || wifiState == WL_DISCONNECTED) {
+        Serial.println("Attempting to reconnect to WiFi...");
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
       }
     }
